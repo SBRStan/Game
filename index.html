@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Last Light"><meta name="theme-color" content="#06080c">
 <title>Last Light</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -47,14 +48,13 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sodium);outline
 .bars .bar span{position:absolute;right:5px;top:50%;transform:translateY(-50%);font:700 11px "Oxanium",var(--f-hud);color:#0b0d12;text-shadow:none;letter-spacing:.04em}
 .bars .bar.ar span{color:#e9e4d6}
 .tc{grid-column:2;grid-row:1;text-align:center;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:0}
-.tr{grid-column:3;grid-row:1;text-align:right;justify-self:end;display:flex;flex-direction:column;align-items:flex-end;gap:5px}
-.tr .squad{align-items:flex-end;margin-top:4px}
-.hud .tr{transform:scale(var(--hs,.75));transform-origin:top right}
-.hud .bl{transform:scale(var(--hs,.75));transform-origin:bottom left}
-.is-touch .hud .bl{transform-origin:top left}
-.tr .status{border:0;background:none;padding:0;font-size:14px;color:var(--dim)}
-.tr .status.warn{color:var(--sodium)}
-.bl{grid-column:1;grid-row:3;align-self:end;display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.tl{position:absolute;left:calc(env(safe-area-inset-left,0px) + 18px);top:calc(env(safe-area-inset-top,0px) + 14px);display:flex;flex-direction:column;align-items:flex-start;gap:5px;transform:scale(var(--hs,.75));transform-origin:top left}
+.tl .squad{align-items:flex-start;margin-top:4px}
+.tl .status{border:0;background:none;padding:0;font-size:14px;color:var(--dim)}
+.tl .status.warn{color:var(--sodium)}
+.wpn{position:absolute;right:calc(env(safe-area-inset-right,0px) + 18px);bottom:calc(env(safe-area-inset-bottom,0px) + 14px);display:flex;flex-direction:column;align-items:flex-end;gap:6px;transform:scale(var(--hs,.75));transform-origin:bottom right}
+.wpn .slots{justify-content:flex-end}
+.bl{position:absolute;left:calc(env(safe-area-inset-left,0px) + 18px);bottom:calc(env(safe-area-inset-bottom,0px) + 14px);display:flex;flex-direction:column;align-items:flex-start;gap:6px;transform:scale(var(--hs,.75));transform-origin:bottom left}
 .br{grid-column:3;grid-row:3;align-self:end;justify-self:end;text-align:right}
 .status{font-size:17px;font-weight:700;letter-spacing:.04em;padding:3px 10px;border:1px solid var(--line);background:rgba(6,8,12,.55)}
 .status.warn{color:var(--sodium);border-color:rgba(239,166,64,.45)}
@@ -143,6 +143,11 @@ h2{font-family:var(--f-display);font-weight:900;font-size:clamp(38px,9vw,60px);l
 .seg button.on{background:var(--ink);color:var(--night)}
 .seg button:disabled{cursor:default}
 .vote{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+#scrOpt.mobView .pcOnly,#scrOpt:not(.mobView) .mobOnly{display:none}
+.mobrow button{flex:1;white-space:nowrap}
+@media (max-height:520px){#scrTitle h1{font-size:52px}#scrTitle .card{gap:10px}#scrTitle .lede{display:none}}
+.vote3{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:560px){.vote3{grid-template-columns:1fr}}
 .vote button{background:rgba(233,228,214,.05);border:1px solid var(--line);color:var(--ink);padding:18px 12px;display:flex;flex-direction:column;gap:4px;align-items:flex-start;text-align:left}
 .vote button b{font-family:var(--f-display);font-size:30px;font-weight:900;letter-spacing:.03em}
 .vote button span{font-size:15px;color:var(--dim);font-weight:600}
@@ -195,26 +200,54 @@ h2{font-family:var(--f-display);font-weight:900;font-size:clamp(38px,9vw,60px);l
 .sbtn:disabled{opacity:.38;cursor:not-allowed}
 #touch{position:fixed;inset:0;z-index:4}
 #touchLayer{position:absolute;inset:0}
-#joyBase{position:absolute;width:120px;height:120px;margin:-60px 0 0 -60px;border-radius:50%;border:2px solid rgba(233,228,214,.25);background:rgba(233,228,214,.05);pointer-events:none}
-#joyKnob{position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;border-radius:50%;background:rgba(233,228,214,.3)}
-.tbtn{position:absolute;border-radius:50%;border:2px solid rgba(233,228,214,.3);background:rgba(10,12,16,.45);color:var(--ink);font-weight:700;letter-spacing:.06em;font-size:13px;display:flex;align-items:center;justify-content:center;touch-action:none}
+#joyBase{position:absolute;width:128px;height:128px;margin:-64px 0 0 -64px;border-radius:50%;border:2px solid rgba(233,228,214,.28);background:radial-gradient(circle,rgba(233,228,214,.04),rgba(233,228,214,.1));pointer-events:none;transition:opacity .15s}
+#joyBase.rest{opacity:.45}
+#lookBase{position:absolute;width:112px;height:112px;right:calc(env(safe-area-inset-right,0px) + 144px);bottom:calc(env(safe-area-inset-bottom,0px) + 104px);border-radius:50%;border:2px solid rgba(233,228,214,.28);background:radial-gradient(circle,rgba(233,228,214,.04),rgba(233,228,214,.1));touch-action:none;transition:opacity .12s}
+#tFire{width:84px;height:84px;right:calc(var(--r) + 99px);bottom:calc(var(--b) + 16px);border-color:rgba(239,166,64,.65);border-width:3px}
+#tAim{width:56px;height:56px;right:calc(var(--r) + 72px);bottom:calc(var(--b) + 132px)}
+#tReload{width:46px;height:46px;right:calc(var(--r) + 192px);bottom:calc(var(--b) + 32px)}
+#tStance{width:50px;height:50px;right:calc(var(--r) + 262px);bottom:calc(var(--b) + 54px)}
+#tThrow{width:52px;height:52px;right:calc(var(--r) + 66px);bottom:calc(var(--b) + 196px)}
+#tTCyc{width:42px;height:42px;right:calc(var(--r) + 127px);bottom:calc(var(--b) + 230px)}
+#tAbil{width:50px;height:50px;right:calc(var(--r) + 63px);bottom:calc(var(--b) + 265px);border-color:var(--supply);color:var(--supply)}
+#tUse{width:64px;height:64px;right:calc(var(--r) + 278px);bottom:calc(var(--b) + 128px);border-color:var(--supply);color:var(--supply);font-size:13px}
+.hswap{display:none}
+html.firing .rlock{opacity:.35;pointer-events:none}
+.is-touch .wpn .hswap{display:flex;position:relative;width:76px;height:76px;pointer-events:auto;border-width:3px;flex:none}
+#lookBase.gone{opacity:0;pointer-events:none}
+#lookKnob{position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;background:rgba(233,228,214,.28);border:2px solid rgba(233,228,214,.5);pointer-events:none}
+#lookKnob:after{content:"";position:absolute;inset:14px;border:2px solid rgba(233,228,214,.55);border-radius:50%}
+#tFire,#tFireL{transition:transform .05s}
+#joyKnob{position:absolute;left:50%;top:50%;width:54px;height:54px;margin:-27px 0 0 -27px;border-radius:50%;background:rgba(233,228,214,.32);border:2px solid rgba(233,228,214,.5)}
+.tbtn{position:absolute;border-radius:50%;border:2px solid rgba(233,228,214,.32);background:rgba(10,12,16,.42);color:var(--ink);font-weight:700;letter-spacing:.06em;font-size:12px;display:flex;align-items:center;justify-content:center;touch-action:none;padding:0;--b:calc(env(safe-area-inset-bottom,0px));--r:calc(env(safe-area-inset-right,0px))}
+.tbtn svg{width:56%;height:56%;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.tbtn svg .f{fill:currentColor;stroke:none}
 .tbtn.on{background:rgba(239,166,64,.35);border-color:var(--sodium)}
-#tFire{width:86px;height:86px;right:20px;bottom:calc(env(safe-area-inset-bottom,0px) + 34px);font-size:16px;border-color:rgba(239,166,64,.6)}
-#tAim{width:60px;height:60px;right:120px;bottom:calc(env(safe-area-inset-bottom,0px) + 108px)}
-#tReload{width:54px;height:54px;right:118px;bottom:calc(env(safe-area-inset-bottom,0px) + 30px)}
-#tKnife{width:54px;height:54px;right:30px;bottom:calc(env(safe-area-inset-bottom,0px) + 138px)}
-#tSwap{width:50px;height:50px;right:196px;bottom:calc(env(safe-area-inset-bottom,0px) + 24px)}
-#tUse{width:62px;height:62px;right:196px;bottom:calc(env(safe-area-inset-bottom,0px) + 90px);border-color:var(--supply);color:var(--supply)}
-#tAbil{width:50px;height:50px;right:44px;bottom:calc(env(safe-area-inset-bottom,0px) + 210px)}
-#tPause{width:40px;height:40px;left:50%;margin-left:-20px;top:calc(env(safe-area-inset-top,0px) + 70px);font-size:13px}
-.is-touch .hud{grid-template-rows:auto auto 1fr}
-.is-touch .bl{grid-row:1;align-self:start}
-.is-touch .ammo{font-size:30px}.is-touch .abox .gun{width:72px;height:28px}
-.is-touch .br{grid-row:2;align-self:start}
-.is-touch .big{font-size:32px}
-#tGren{width:46px;height:46px;right:200px;bottom:calc(env(safe-area-inset-bottom,0px) + 164px);font-size:11px}
-#tTac{width:46px;height:46px;right:140px;bottom:calc(env(safe-area-inset-bottom,0px) + 186px);font-size:11px}
-#tClay{width:46px;height:46px;right:100px;bottom:calc(env(safe-area-inset-bottom,0px) + 240px);font-size:11px}
+.tbtn .cnt{position:absolute;right:-3px;bottom:-3px;min-width:16px;height:16px;border-radius:8px;background:#0b0d12;border:1px solid rgba(233,228,214,.45);font:700 11px/14px "Oxanium",var(--f-hud);font-style:normal;text-align:center;padding:0 3px;box-sizing:border-box}
+.tbtn.empty{opacity:.4}
+#tFireL{width:58px;height:58px;left:calc(env(safe-area-inset-left,0px) + 46px);bottom:calc(var(--b) + 214px);border-color:rgba(239,166,64,.5)}
+.tbtn.sq{border-radius:9px;width:40px;height:40px;top:calc(env(safe-area-inset-top,0px) + 10px)}
+#tPause{right:calc(var(--r) + 12px)}
+#tScore{right:calc(var(--r) + 58px)}
+#tFull{right:calc(var(--r) + 104px)}
+/* touch HUD: weapon bar bottom center (tap a gun to switch), health just above it, wave and squad top left */
+.is-touch .tl{transform:scale(calc(var(--hs,.75)*.85))}
+.is-touch .wpn{right:auto;left:50%;flex-direction:row;align-items:center;gap:10px;transform:translateX(-50%) scale(var(--hs,.75));transform-origin:bottom center}
+.is-touch .wpn .equip{display:none}
+.is-touch .hud{z-index:5}
+.is-touch .wpn .slots{order:-1;pointer-events:auto;gap:8px}
+.is-touch .wpn .slots span{width:62px;height:28px;padding:4px 7px;background:rgba(4,6,10,.5);border-width:2px}
+.is-touch .bl{left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 14px + 88px*var(--hs,.75));align-items:center;transform:translateX(-50%) scale(var(--hs,.75));transform-origin:bottom center}
+.is-touch .bl .credrow,.is-touch .bl .cls{display:none}
+.is-touch .tl .credmini{display:flex}
+.credmini{display:none;align-items:baseline;gap:8px}
+.credmini b{font-family:"Oxanium",var(--f-hud);font-size:22px;font-weight:800}
+#rotate{display:none;position:fixed;inset:0;z-index:9;background:rgba(6,8,12,.94);flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px;font-size:18px;font-weight:700;letter-spacing:.06em}
+#rotate svg{width:70px;height:70px;fill:none;stroke:var(--ink);stroke-width:2}
+@media (orientation:portrait){.is-touch #touch:not([hidden])~#rotate{display:flex}}
+#iosHint{position:fixed;left:50%;top:20px;transform:translateX(-50%);z-index:20;width:min(92vw,420px);background:rgba(8,10,14,.95);border:1px solid var(--sodium);padding:14px 16px;font-size:15px;line-height:1.4}
+#iosHint b{color:var(--sodium)}
+#iosHint button{margin-top:10px}
 .equip{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--dim);margin-top:5px;text-transform:uppercase}
 .equip b{color:var(--ink);font-weight:700}
 .equip .batt{display:inline-block;width:46px;height:6px;background:rgba(233,228,214,.15);vertical-align:middle;margin-left:4px;position:relative}
@@ -242,7 +275,6 @@ h2{font-family:var(--f-display);font-weight:900;font-size:clamp(38px,9vw,60px);l
 #score td{padding:5px 6px;text-align:right;font-weight:700;border-top:1px solid rgba(233,228,214,.08)}
 #score td em{font-style:normal;color:var(--dim);font-weight:600}
 #score .hint{font-size:11px;color:var(--dim);margin-top:6px;text-align:center;letter-spacing:.06em}
-#tScore{width:42px;height:42px;left:calc(50% + 30px);top:calc(env(safe-area-inset-top,0px) + 70px);font-size:10px}
 .is-touch #score{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 120px)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -255,17 +287,20 @@ h2{font-family:var(--f-display);font-weight:900;font-size:clamp(38px,9vw,60px);l
 <canvas id="game" aria-label="Game view"></canvas>
 <div id="tags"></div>
 <div class="hud" id="hud" hidden>
-  <div class="tr">
+  <div class="tl">
     <div class="hbox wbox"><div class="hw">WAVE <span id="hWave">0</span></div><div class="he" id="hLeft">GET READY</div></div>
     <div class="status" id="hStatus">Prep</div><div class="clock" id="hClock">00:00</div>
-    <div class="squad" id="hSquad"></div><div class="micind" id="hMic" hidden></div>
+    <div class="credmini"><span class="label">Credits</span><b id="hCred2">0</b></div><div class="squad" id="hSquad"></div><div class="micind" id="hMic" hidden></div>
   </div>
   <div class="bl">
     <div class="credrow"><span class="label" id="hMe">Credits</span><b id="hCred">0</b></div><div class="cls" id="hClass"></div>
     <div class="bars"><div class="bar hp"><i id="hHp" style="width:100%"></i><span id="hHpN">100</span></div><div class="bar ar"><i id="hAr" style="width:0%"></i><span id="hArN">0</span></div></div>
+  </div>
+  <div class="wpn">
     <div class="hbox abox"><span class="gun" id="hGun"></span><div class="ammo" id="hAmmo">15<small>/90</small></div></div>
     <div class="equip" id="hEquip"></div>
     <div class="slots" id="hSlots"><span data-w="glock"></span><span data-w="sawn"></span><span data-w="ak"></span></div>
+    <button class="tbtn hswap" id="tSwap" type="button" aria-label="Next gun"><svg viewBox="0 0 24 24" style="width:66%;height:66%"><path d="M4 3.5h14l-2-2M20 8H6l2 2"/><path class="f" d="M5 14h13.5v3H11.5l-1.2 4.8H6.8l1.2-4.8H5z"/></svg></button>
   </div>
 </div>
 <div id="fpsMeter" hidden></div><div id="cross" hidden></div><div id="dot"></div>
@@ -287,20 +322,23 @@ h2{font-family:var(--f-display);font-weight:900;font-size:clamp(38px,9vw,60px);l
 
 <div id="touch" hidden>
   <div id="touchLayer"></div>
-  <div id="joyBase" hidden><div id="joyKnob"></div></div>
-  <button class="tbtn" id="tFire" type="button">FIRE</button>
-  <button class="tbtn" id="tAim" type="button">AIM</button>
-  <button class="tbtn" id="tReload" type="button">RLD</button>
-  <button class="tbtn" id="tKnife" type="button">KNIFE</button>
-  <button class="tbtn" id="tSwap" type="button">SWAP</button>
+  <div id="joyBase" class="rest"><div id="joyKnob"></div></div>
+  <div id="lookBase"><div id="lookKnob"></div></div>
+  <button class="tbtn" id="tFireL" type="button" aria-label="Fire"><svg viewBox="0 0 24 24"><path class="f" d="M10 3c-1.6 1.6-2 4-2 6v10h8V9c0-2-.4-4.4-2-6z"/><path class="f" d="M7.5 20h9v2h-9z"/></svg></button>
+  <button class="tbtn" id="tFire" type="button" aria-label="Fire"><svg viewBox="0 0 24 24"><path class="f" d="M10 3c-1.6 1.6-2 4-2 6v10h8V9c0-2-.4-4.4-2-6z"/><path class="f" d="M7.5 20h9v2h-9z"/></svg></button>
+  <button class="tbtn" id="tAim" type="button" aria-label="Aim down sights"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/><circle class="f" cx="12" cy="12" r="1.4"/></svg></button>
+  <button class="tbtn" id="tReload" type="button" aria-label="Reload"><svg viewBox="0 0 24 24"><path d="M19 8a8 8 0 1 0 1 6"/><path d="M20 3v5h-5"/></svg></button>
+  <button class="tbtn" id="tStance" type="button" aria-label="Crouch or stand, double tap to jump"><svg viewBox="0 0 24 24" style="width:62%;height:62%"><circle class="f" cx="11" cy="4.5" r="2.4"/><path d="M11 8.5l-1.5 6h5.5l1 6M9.5 14.5L6 20.5M11 9.5l4.5 2.5"/></svg></button>
+  <button class="tbtn" id="tThrow" type="button" aria-label="Throw"><svg viewBox="0 0 24 24" data-t="g"><circle cx="11" cy="14" r="6"/><path d="M9 8V6h4v2M13 6l4-2M8 14h6M11 11v6"/></svg><svg viewBox="0 0 24 24" data-t="n" hidden><path class="f" d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9c1.5 1.5 1.5 4.5 0 6M19 6c3 3 3 9 0 12"/></svg><svg viewBox="0 0 24 24" data-t="c" hidden><path d="M4 9c5-3 11-3 16 0v5H4z"/><path d="M8 14l-2 5M16 14l2 5"/></svg><i class="cnt" id="cThrow">0</i></button>
+  <button class="tbtn" id="tTCyc" type="button" aria-label="Next throwable"><svg viewBox="0 0 24 24" style="width:68%;height:68%"><path d="M4 3.5h14l-2-2M20 8H6l2 2"/><circle class="f" cx="12" cy="18.6" r="3.8"/><path d="M10.7 14.6v-1.2h2.6v1.2M13.3 13.4l2.4-1.2"/></svg></button>
+  <button class="tbtn" id="tAbil" type="button" aria-label="Ability" hidden><svg viewBox="0 0 24 24"><path class="f" d="M13 2L5 14h6l-1 8 8-12h-6z"/></svg></button>
   <button class="tbtn" id="tUse" type="button" hidden>USE</button>
-  <button class="tbtn" id="tAbil" type="button" hidden>ABIL</button>
-  <button class="tbtn" id="tGren" type="button">GREN</button>
-  <button class="tbtn" id="tTac" type="button">TAC</button>
-  <button class="tbtn" id="tClay" type="button" hidden>CLAY</button>
-  <button class="tbtn" id="tPause" type="button" aria-label="Pause">II</button>
-  <button class="tbtn" id="tScore" type="button">SCORE</button>
+  <button class="tbtn sq" id="tPause" type="button" aria-label="Menu"><svg viewBox="0 0 24 24"><path d="M9 6v12M15 6v12"/></svg></button>
+  <button class="tbtn sq" id="tScore" type="button" aria-label="Scoreboard"><svg viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h14"/></svg></button>
+  <button class="tbtn sq" id="tFull" type="button" aria-label="Full screen"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg></button>
 </div>
+<div id="rotate"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="11" rx="2"/><path d="M8 3h8M18 3l-2-1.5M18 3l-2 1.5"/></svg>Turn your phone sideways</div>
+<div id="iosHint" hidden><b>Full screen on iPhone</b><br>Safari can't go full screen from a web page. Tap the Share button, then <b>Add to Home Screen</b>, and open Last Light from that icon. It runs full screen from there.<br><button class="ghost" id="iosHintOk" type="button">Got it</button></div>
 
 <div class="overlay" id="scrTitle">
   <div class="card">
@@ -310,7 +348,8 @@ h2{font-family:var(--f-display);font-weight:900;font-size:clamp(38px,9vw,60px);l
     <div class="menu-list">
       <button class="cta" id="btnSquad" type="button" disabled>Squad play</button>
       <button class="ghost" id="btnSolo" type="button">Solo run</button>
-      <div class="row"><button class="ghost" id="btnOptT" type="button">Options</button><button class="ghost" id="btnCtlT" type="button">Controls</button></div>
+      <div class="row mobrow"><button class="ghost" id="btnMSquad" type="button" disabled>Mobile squad</button><button class="ghost" id="btnMSolo" type="button">Mobile solo</button></div>
+      <div class="row"><button class="ghost" id="btnOptT" type="button">Options</button><button class="ghost" id="btnCtlT" type="button">Controls</button><button class="ghost" id="btnFullT" type="button">Full screen</button></div>
     </div>
     <p class="note" id="squadNote">Checking for squad play…</p>
     <p class="err" id="menuErr" hidden>The 3D engine didn't load. Check your connection and reload the page.</p>
@@ -339,15 +378,14 @@ h2{font-family:var(--f-display);font-weight:900;font-size:clamp(38px,9vw,60px);l
 </div>
 <div class="overlay" id="scrVote" hidden>
   <div class="card">
-    <div class="eyebrow">Anonymous vote</div>
-    <h2>Permadeath?</h2>
-    <div class="timer" id="voteTimer">10</div>
-    <div class="vote">
-      <button type="button" id="voteOn" data-v="1"><b>On</b><span>Die and you stay dead, unless the Medic gets to you.</span></button>
-      <button type="button" id="voteOff" data-v="0"><b>Off</b><span>Respawns set by difficulty (3 / 2 / 1). Fall and you sit out the next wave. If the banshee or the djinn take more than one of you, only one sits out.</span></button>
+    <div class="eyebrow">Solo run</div>
+    <h2>Difficulty</h2>
+    <div class="vote vote3">
+      <button type="button" class="dpick" data-d="0"><b>Easy</b><span>3 respawns. Softer, slower zombies.</span></button>
+      <button type="button" class="dpick" data-d="1"><b>Medium</b><span>2 respawns. The standard run.</span></button>
+      <button type="button" class="dpick" data-d="2"><b>Hard</b><span>1 respawn. Tougher, faster, harder-hitting zombies.</span></button>
     </div>
-    <div class="tally"><span id="tallyOn">On · 0</span><span id="tallyOff">Off · 0</span></div>
-    <p class="note" id="voteNote">Majority wins. A tie is settled by a coin flip. Anyone who doesn't vote isn't counted.</p>
+    <div class="row"><button class="ghost" id="btnDiffBack" type="button">Back</button></div>
   </div>
 </div>
 <div class="overlay thin" id="scrPause" hidden>
@@ -355,7 +393,7 @@ h2{font-family:var(--f-display);font-weight:900;font-size:clamp(38px,9vw,60px);l
     <div class="eyebrow" id="pauseEyebrow">Paused</div>
     <h2>Catch your breath</h2>
     <p class="note" id="pauseNote"></p>
-    <div class="row"><button class="cta" id="btnResume" type="button">Resume</button><button class="ghost" id="btnOptP" type="button">Options</button><button class="ghost" id="btnCtlP" type="button">Controls</button><button class="ghost" id="btnQuit" type="button">Leave run</button></div>
+    <div class="row"><button class="cta" id="btnResume" type="button">Resume</button><button class="ghost" id="btnOptP" type="button">Options</button><button class="ghost" id="btnCtlP" type="button">Controls</button><button class="ghost" id="btnFullP" type="button">Full screen</button><button class="ghost" id="btnQuit" type="button">Leave run</button></div>
   </div>
 </div>
 <div class="overlay" id="scrOpt" hidden>
@@ -384,12 +422,14 @@ h2{font-family:var(--f-display);font-weight:900;font-size:clamp(38px,9vw,60px);l
       <label for="oBgMute">Mute when the game isn't in focus</label><input id="oBgMute" type="checkbox">
     </div>
     <div class="opts" data-tab="game" hidden>
-      <label for="oSens">Mouse sensitivity <output id="oSensV"></output></label><input id="oSens" type="range" min="1" max="10" step="1">
-      <label for="oPad">Controller look speed <output id="oPadV"></output></label><input id="oPad" type="range" min="1" max="10" step="1">
+      <label for="oSens" class="pcOnly">Mouse sensitivity <output id="oSensV"></output></label><input class="pcOnly" id="oSens" type="range" min="1" max="10" step="1">
+      <label for="oPad" class="pcOnly">Controller look speed <output id="oPadV"></output></label><input class="pcOnly" id="oPad" type="range" min="1" max="10" step="1">
+      <label for="oTsens" class="mobOnly">Joystick look speed <output id="oTsensV"></output></label><input class="mobOnly" id="oTsens" type="range" min="1" max="10" step="1">
       <label for="oAds">Aim sensitivity <output id="oAdsV"></output></label><input id="oAds" type="range" min="3" max="10" step="1">
-      <label for="oTog">Toggle aim instead of hold</label><input id="oTog" type="checkbox">
+      <label for="oTog" class="pcOnly">Toggle aim instead of hold</label><input class="pcOnly" id="oTog" type="checkbox">
       <label for="oInv">Invert look up/down</label><input id="oInv" type="checkbox">
-      <label for="oAim">Controller aim assist</label><input id="oAim" type="checkbox">
+      <label for="oAim" class="pcOnly">Controller aim assist</label><input class="pcOnly" id="oAim" type="checkbox">
+      <label for="oFads" class="mobOnly">Aim down sights while firing</label><select class="mobOnly" id="oFads"><option value="off">Off</option><option value="r">Right fire button</option><option value="l">Left fire button</option><option value="b">Both fire buttons</option></select>
       <label for="oMates">Show teammates' health, armor and credits</label><input id="oMates" type="checkbox">
     </div>
     <p class="note" id="voiceNote"></p>
@@ -1382,8 +1422,10 @@ function makePeerRoom(){
 }
 /* ================= CLIENT ================= */
 const $=id=>document.getElementById(id);
-const isTouch=window.matchMedia('(pointer: coarse)').matches;
-if(isTouch)document.documentElement.classList.add('is-touch');
+// touchDev: the device has a touch screen (used only for render cost). isTouch: the player picked Mobile solo or Mobile squad, which turns the on-screen controls on
+const touchDev=window.matchMedia('(pointer: coarse)').matches;
+let isTouch=false;
+function setMobile(v){isTouch=!!v;document.documentElement.classList.toggle('is-touch',isTouch);if(isTouch&&document.pointerLockElement)document.exitPointerLock();}
 if(typeof THREE==='undefined'){$('menuErr').hidden=false;$('btnSolo').disabled=true;throw new Error('three.js missing');}
 const CS_HEX=[0xefa640,0x4fb3a9,0xd4564a,0xa58ae0],CS_CSS=['var(--cs0)','var(--cs1)','var(--cs2)','var(--cs3)'];
 
@@ -1395,8 +1437,8 @@ function saveOpt(){try{localStorage.setItem('lastlight-opt',JSON.stringify(OPT))
 
 /* ================= RENDERER & WORLD ================= */
 const canvas=$('game');
-const renderer=new THREE.WebGLRenderer({canvas,antialias:!isTouch,powerPreference:'high-performance'});
-renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,isTouch?1.25:1.5));
+const renderer=new THREE.WebGLRenderer({canvas,antialias:!touchDev,powerPreference:'high-performance'});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,touchDev?1.25:1.5));
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(OPT.fov,1,.05,220);camera.rotation.order='YXZ';scene.add(camera);
 scene.fog=new THREE.FogExp2(0x070b16,.045);scene.background=new THREE.Color(0x070b16);
@@ -1775,7 +1817,7 @@ let transport='none';
 (async()=>{
   try{if(window.claude&&typeof window.claude.use==='function'){room=await window.claude.use('room');if(room)transport='claude';}}catch(e){room=null;}
   if(!room){room=makePeerRoom();if(room)transport='peer';}
-  roomChecked=true;$('btnSquad').disabled=!room;
+  roomChecked=true;$('btnSquad').disabled=!room;$('btnMSquad').disabled=!room;
   $('squadNote').textContent=transport==='claude'?'Squad play is ready. Share this page with up to three friends, then everyone picks the same squad code.'
     :transport==='peer'?'Squad play is ready. Send your friends this page\'s link, then everyone picks the same squad code.'
     :'Squad play could not load here. Solo runs still work.';
@@ -1878,7 +1920,7 @@ function sumPvOnMe(){
 
 /* ================= INPUT ================= */
 const keys={};
-let locked=false,lookDrag=null,lastInput='kbm',mouseAim=false,touchAim=false,useHeld=false,useHeldPrev=false;
+let locked=false,lookDrag=null,lastInput='kbm',mouseAim=false,touchAim=false,fireAim=0,useHeld=false,useHeldPrev=false;
 function wantLock(){if(isTouch||lastInput==='pad')return;try{const r=canvas.requestPointerLock&&canvas.requestPointerLock();if(r&&r.catch)r.catch(()=>{});}catch(e){}}
 document.addEventListener('pointerlockchange',()=>{locked=document.pointerLockElement===canvas;if(!locked&&inGame()&&!shopFor&&!paused&&lastInput==='kbm'&&P.alive)openPause();});
 function lookMult(){return 1-P.ads*(1-OPT.ads/10);}
@@ -1942,32 +1984,92 @@ window.addEventListener('keydown',e=>{
 window.addEventListener('keyup',e=>{const k=e.key.toLowerCase();keys[k]=false;if(kbIs(k,'use'))useHeld=false;});
 window.addEventListener('blur',()=>{for(const k in keys)keys[k]=false;P.firing=false;mouseAim=false;useHeld=false;});
 // touch
+// one throw button: the cycle button steps through grenade, noise maker and (Demolitions only) claymore
+let thrSel='g';
+function thrList(){return myClass()===2?['g','n','c']:['g','n'];}
+function thrCur(){const L=thrList();if(!L.includes(thrSel))thrSel='g';return thrSel;}
+function thrCount(t){return t==='g'?P.gren:t==='n'?P.noiseN:P.clay;}
+function thrShow(){const t=thrCur();for(const g of $('tThrow').querySelectorAll('svg'))g.hidden=g.dataset.t!==t;const n=thrCount(t)|0,e=$('cThrow');if(e.textContent!==String(n))e.textContent=n;$('tThrow').classList.toggle('empty',!n);}
 const joy={id:null,ox:0,oy:0,vx:0,vy:0},look={id:null,x:0,y:0};
-if(isTouch){
+// right look stick, and the fire buttons acting as the look stick while held (the look stick hides then)
+const rj={id:null,ox:0,oy:0,vx:0,vy:0},fireStick={};
+function touchLookVec(){let f=null;for(const k in fireStick)if(fireStick[k])f=fireStick[k];if(f)return f;return rj.id!==null?rj:null;}
+// full screen: the real thing on Android and computers (locked sideways on phones); iPhone Safari has no page full screen, so it gets the Add to Home Screen steps
+function isFull(){return !!(document.fullscreenElement||document.webkitFullscreenElement);}
+function iosHint(){$('iosHint').hidden=false;}
+function toggleFull(){
+  const d=document,el=d.documentElement;
+  try{
+    if(isFull()){(d.exitFullscreen||d.webkitExitFullscreen).call(d);return;}
+    const req=el.requestFullscreen||el.webkitRequestFullscreen;
+    if(!req){iosHint();return;}
+    const p=req.call(el,{navigationUI:'hide'});
+    const lock=()=>{try{if(isTouch&&window.screen.orientation&&window.screen.orientation.lock)window.screen.orientation.lock('landscape').catch(()=>{});}catch(e){}};
+    if(p&&p.then)p.then(lock).catch(()=>{if(isTouch)iosHint();});else lock();
+  }catch(e){if(isTouch)iosHint();}
+}
+$('iosHintOk').addEventListener('click',()=>{$('iosHint').hidden=true;});
+for(const id of ['btnFullT','btnFullP'])$(id).addEventListener('click',toggleFull);
+const fullLbl=()=>{const t=isFull()?'Exit full screen':'Full screen';$('btnFullT').textContent=t;$('btnFullP').textContent=t;$('tFull').classList.toggle('on',isFull());};
+document.addEventListener('fullscreenchange',fullLbl);document.addEventListener('webkitfullscreenchange',fullLbl);
+{
   const layer=$('touchLayer'),base=$('joyBase'),knob=$('joyKnob');
+  // the stick rests bottom left and jumps to wherever your thumb lands on the left side
+  const joyRest=()=>{base.classList.add('rest');base.style.left=(Math.max(110,innerWidth*.12))+'px';base.style.top=(innerHeight-118)+'px';knob.style.transform='';};
+  joyRest();window.addEventListener('resize',()=>{if(joy.id===null)joyRest();});
+  // double tap anywhere on the open screen (not on a button) = knife
+  const tap={t:-1e9,x:0,y:0},downs={};
   layer.addEventListener('touchstart',e=>{e.preventDefault();lastInput='touch';
     for(const t of e.changedTouches){
-      if(t.clientX<innerWidth*.45&&joy.id===null){joy.id=t.identifier;joy.ox=t.clientX;joy.oy=t.clientY;joy.vx=joy.vy=0;base.hidden=false;base.style.left=t.clientX+'px';base.style.top=t.clientY+'px';knob.style.transform='';}
+      downs[t.identifier]={t:e.timeStamp,x:t.clientX,y:t.clientY,mv:0};
+      if(e.timeStamp-tap.t<300&&Math.hypot(t.clientX-tap.x,t.clientY-tap.y)<70){tap.t=-1e9;if(P.alive&&!(document.documentElement.classList.contains('firing')&&t.clientX>innerWidth/2))knife();}
+      if(t.clientX<innerWidth*.42&&joy.id===null){joy.id=t.identifier;joy.ox=t.clientX;joy.oy=t.clientY;joy.vx=joy.vy=0;base.classList.remove('rest');base.style.left=t.clientX+'px';base.style.top=t.clientY+'px';knob.style.transform='';}
       else if(look.id===null){look.id=t.identifier;look.x=t.clientX;look.y=t.clientY;if(!P.alive)specNext();}
     }},{passive:false});
   layer.addEventListener('touchmove',e=>{e.preventDefault();
     for(const t of e.changedTouches){
-      if(t.identifier===joy.id){let dx=t.clientX-joy.ox,dy=t.clientY-joy.oy;const m=Math.hypot(dx,dy),R=55;if(m>R){dx*=R/m;dy*=R/m;}joy.vx=dx/R;joy.vy=dy/R;knob.style.transform=`translate(${dx}px,${dy}px)`;}
-      if(t.identifier===look.id){const s=.0011*OPT.sens;lookBy((t.clientX-look.x)*s,(t.clientY-look.y)*s);look.x=t.clientX;look.y=t.clientY;}
+      const d=downs[t.identifier];if(d)d.mv=Math.max(d.mv,Math.hypot(t.clientX-d.x,t.clientY-d.y));
+      if(t.identifier===joy.id){let dx=t.clientX-joy.ox,dy=t.clientY-joy.oy;const m=Math.hypot(dx,dy),R=58;if(m>R){dx*=R/m;dy*=R/m;}joy.vx=dx/R;joy.vy=dy/R;knob.style.transform=`translate(${dx}px,${dy}px)`;}
+      if(t.identifier===look.id){const s=.0011*(OPT.tsens||5);lookBy((t.clientX-look.x)*s,(t.clientY-look.y)*s);look.x=t.clientX;look.y=t.clientY;}
     }},{passive:false});
-  const end=e=>{for(const t of e.changedTouches){if(t.identifier===joy.id){joy.id=null;joy.vx=joy.vy=0;base.hidden=true;}if(t.identifier===look.id)look.id=null;}};
+  const end=e=>{for(const t of e.changedTouches){const d=downs[t.identifier];delete downs[t.identifier];
+      if(d&&e.timeStamp-d.t<220&&d.mv<14){tap.t=e.timeStamp;tap.x=d.x;tap.y=d.y;}if(t.identifier===joy.id){joy.id=null;joy.vx=joy.vy=0;joyRest();}if(t.identifier===look.id)look.id=null;}};
   layer.addEventListener('touchend',end);layer.addEventListener('touchcancel',end);
-  const hold=(id,down,up)=>{const el=$(id);
-    el.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();el.classList.add('on');down();},{passive:false});
-    const u=e=>{e.preventDefault();el.classList.remove('on');if(up)up();};el.addEventListener('touchend',u);el.addEventListener('touchcancel',u);};
-  hold('tFire',()=>{if(P.alive){P.firing=true;P.firedThisPress=false;fireNow();}else specNext();},()=>{P.firing=false;});
+  const lookBase=$('lookBase'),lookKnob=$('lookKnob');
+  // while a fire button is held, every other button on the right half is locked (dimmed, taps ignored) so a stray thumb can't reload or swap
+  const rlockMark=()=>{for(const b of document.querySelectorAll('#touch .tbtn,#tSwap,#hSlots')){if(b.id==='tFire'||b.id==='tFireL')continue;const r=b.getBoundingClientRect();b.classList.toggle('rlock',r.width>0&&r.left+r.width/2>innerWidth/2);}};
+  const lookShow=()=>{const firing=Object.values(fireStick).some(Boolean);lookBase.classList.toggle('gone',firing);if(firing)rlockMark();document.documentElement.classList.toggle('firing',firing);if(firing&&rj.id!==null){rj.id=null;rj.vx=rj.vy=0;lookKnob.style.transform='';}};
+  const hold=(id,down,up,stick)=>{const el=$(id);let tid=null,sx=0,sy=0;
+    el.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();lastInput='touch';if(!stick&&el.classList.contains('rlock')&&document.documentElement.classList.contains('firing'))return;const t=e.changedTouches[0];if(tid===null){tid=t.identifier;sx=t.clientX;sy=t.clientY;}el.classList.add('on');
+      if(stick){fireStick[id]={vx:0,vy:0};lookShow();}down(e);},{passive:false});
+    // a held fire button is the look stick: slide your thumb off its center to turn, further = faster
+    el.addEventListener('touchmove',e=>{e.preventDefault();e.stopPropagation();if(!stick)return;for(const t of e.changedTouches)if(t.identifier===tid){let dx=t.clientX-sx,dy=t.clientY-sy;const m=Math.hypot(dx,dy),R=46;if(m>R){dx*=R/m;dy*=R/m;}
+      fireStick[id]={vx:dx/R,vy:dy/R};el.style.transform=`translate(${dx*.35}px,${dy*.35}px)`;}},{passive:false});
+    const u=e=>{e.preventDefault();for(const t of e.changedTouches)if(t.identifier===tid)tid=null;if(tid===null){el.classList.remove('on');if(stick){fireStick[id]=null;el.style.transform='';lookShow();}if(up)up();}};el.addEventListener('touchend',u);el.addEventListener('touchcancel',u);};
+  const rjSet=t=>{let dx=t.clientX-rj.ox,dy=t.clientY-rj.oy;const m=Math.hypot(dx,dy),R=46;if(m>R){dx*=R/m;dy*=R/m;}rj.vx=dx/R;rj.vy=dy/R;lookKnob.style.transform=`translate(${dx}px,${dy}px)`;};
+  lookBase.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();lastInput='touch';const t=e.changedTouches[0];if(rj.id===null){const r=lookBase.getBoundingClientRect();rj.id=t.identifier;rj.ox=r.left+r.width/2;rj.oy=r.top+r.height/2;rjSet(t);}},{passive:false});
+  lookBase.addEventListener('touchmove',e=>{e.preventDefault();e.stopPropagation();for(const t of e.changedTouches)if(t.identifier===rj.id)rjSet(t);},{passive:false});
+  const rjEnd=e=>{e.preventDefault();for(const t of e.changedTouches)if(t.identifier===rj.id){rj.id=null;rj.vx=rj.vy=0;lookKnob.style.transform='';}};
+  lookBase.addEventListener('touchend',rjEnd);lookBase.addEventListener('touchcancel',rjEnd);
+  // a fire button can also aim down sights while held (Options, Gameplay: 'Mobile: aim down sights while firing')
+  const fireDown=side=>()=>{if(OPT.fads==='b'||OPT.fads===side)fireAim|=side==='r'?1:2;if(P.alive){P.firing=true;P.firedThisPress=false;fireNow();}else specNext();},
+    fireUp=side=>()=>{fireAim&=side==='r'?2:1;P.firing=false;};
+  hold('tFire',fireDown('r'),fireUp('r'),true);hold('tFireL',fireDown('l'),fireUp('l'),true);
   hold('tAim',()=>{touchAim=!touchAim;$('tAim').classList.toggle('on',touchAim);},()=>{$('tAim').classList.toggle('on',touchAim);});
-  hold('tReload',()=>startReload());hold('tKnife',()=>knife());hold('tSwap',()=>cycleWeapon(1));
+  hold('tReload',()=>startReload());
+  // one stance button: tap to crouch or stand, double tap to jump
+  let stanceT=0;
+  hold('tStance',e=>{const now=e&&e.timeStamp||performance.now();if(now-stanceT<350){stanceT=0;P.crouch=false;jump();}else{stanceT=now;P.crouch=!P.crouch;}});
+  hold('tSwap',()=>cycleWeapon(1));
+  hold('tThrow',()=>{const t=thrCur();if(t==='g')throwGrenade();else if(t==='n')throwNoise();else placeClaymore();});
+  hold('tTCyc',()=>{const L=thrList(),i=L.indexOf(thrCur());thrSel=L[(i+1)%L.length];thrShow();});
   hold('tUse',()=>{useHeld=true;if(shopFor)closeShop();else if(!reviveCandidate())usePress();},()=>{useHeld=false;});
   hold('tAbil',()=>useAbility());
-  hold('tGren',()=>throwGrenade());hold('tTac',()=>throwNoise());hold('tClay',()=>placeClaymore());
   hold('tPause',()=>openPause());
   hold('tScore',()=>toggleScore());
+  hold('tFull',()=>toggleFull());
+  // tap a gun in the bottom bar to switch to it
+  for(const sp of $('hSlots').children)sp.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();if(document.documentElement.classList.contains('firing')&&$('hSlots').classList.contains('rlock'))return;if(P.alive)switchTo(sp.dataset.w);},{passive:false});
 }
 // gamepad: Xbox and PlayStation share the standard layout
 const PAD={A:0,B:1,X:2,Y:3,LB:4,RB:5,LT:6,RT:7,VIEW:8,MENU:9,L3:10,R3:11,UP:12,DOWN:13,LEFT:14,RIGHT:15};
@@ -2236,8 +2338,6 @@ let lastWaveSeen=-1,lastPhSeen='',lastStSeen=-1,lastDoorSeen='';
 function onSnapshot(s){
   if(!s)return;
   S=s;lastS=s;
-  if(s.st===3&&(screen==='lobby'||screen==='title'||screen==='end'))showVote();
-  if(s.st===3&&screen==='vote')renderVote();
   if(s.st===1&&s.r!==P.run&&(ME.cs>=0||mode==='solo'))enterRun(s);
   if(s.st===2&&lastStSeen!==2&&inGame())showEnd(s);
   if(s.st===2)renderReplay(s);
@@ -2503,7 +2603,7 @@ function toast(big,small){$('toastB').textContent=big;$('toastS').textContent=sm
 function showClassCard(){
   const c=myClass();if(c===undefined)return;const C=CLASSES[c];
   $('ccName').textContent=C.name;$('ccPassive').textContent=C.passive;
-  const keyName=lastInput==='pad'?'D-pad up':isTouch?'ABIL':'X';
+  const keyName=lastInput==='pad'?'D-pad up':isTouch?'the lightning button':'X';
   if(c===2&&P.gren<3)P.gren=3;
   $('ccAbility').textContent=c===0?C.ability+' Costs '+fmt(C.cost)+'. Press '+keyName+'.':c===1?C.ability+' Costs '+fmt(C.cost)+'. Hold Use on their body.':C.ability;
   $('ccAbility').hidden=!C.ability;$('classCard').classList.add('show');cardT=7;
@@ -2517,12 +2617,13 @@ function updateHUD(){
   setText('hStatus',S.ph==='w'?'':(S.ph==='p'?'Wave 1 in ':'Next wave in ')+'0:'+String(S.t).padStart(2,'0'));$('hStatus').hidden=S.ph==='w'; // only the countdown between waves
   $('hStatus').classList.toggle('warn',S.ph!=='w'&&S.t<10);
   setText('hMe',(mode==='squad'&&ME.cs>=0?csName(ME.cs)+' · ':'')+'Credits');
-  setText('hCred',fmt(credits()));
+  setText('hCred',fmt(credits()));setText('hCred2',fmt(credits()));
   const ab=abilityState();
   if(ab&&!P.spectator){const C=CLASSES[ab.c];setText('hClass',ab.label?`${C.name} · ${ab.label} <em>${ab.note}</em>`:C.name);$('hClass').classList.toggle('ready',!!ab.ready);}else setText('hClass','');
   const hpShow=P.dream?P.dreamHp:P.hp;setText('hHpN',String(Math.max(0,Math.ceil(hpShow))));$('hHp').style.width=Math.max(0,hpShow)+'%';
   setText('hArN',String(Math.ceil(P.armor)));$('hAr').style.width=P.armor+'%';
   setText('hGun',gunSVG(P.cur,s.sup,s.opt));
+  if(isTouch){thrShow();$('tStance').classList.toggle('on',!!P.crouch);}
   setText('hEquip',`Gren <b>${P.gren}</b> · Noise <b>${P.noiseN}</b>${myClass()===2?` · Clay <b>${P.clay}</b>`:''}${s.opt?` · Thermal<span class="batt"><i style="width:${Math.round(P.batt/THERMAL_BATTERY*20)*5}%"></i></span>`:''}`);
   setText('hAmmo',s.mag+'<small>/'+s.res+'</small>');$('hAmmo').classList.toggle('reloading',P.reloadT>0);
   if(mode==='squad'){
@@ -2552,7 +2653,7 @@ function updateHUD(){
   }
   if(t){setText('prompt',t);pr.hidden=false;pr.classList.toggle('off',off);}else pr.hidden=true;
   $('holdBar').hidden=!(P.reviveT>0);$('holdFill').style.width=Math.min(100,P.reviveT/REVIVE_HOLD*100)+'%';
-  if(isTouch){$('tUse').hidden=!(t||shopFor||canRespawn());$('tAbil').hidden=!(ab&&ab.c===0&&P.alive);$('tClay').hidden=!(myClass()===2&&P.alive);}
+  if(isTouch){$('tUse').hidden=!(t||shopFor||canRespawn());$('tAbil').hidden=!(ab&&ab.c===0&&P.alive);}
   const spec=$('spec');
   if(P.downed){
     spec.hidden=false;$('specName').textContent='Down · '+Math.max(0,Math.ceil(P.downT))+'s';
@@ -2612,19 +2713,11 @@ function openPause(){
 }
 function resume(){paused=false;hideAll();wantLock();}
 function showVote(){P.vote=null;for(const s of SCREENS)$(s).hidden=s!=='scrVote';screen='vote';renderVote();}
-function renderVote(){
-  const s=S||{};const solo=mode==='solo';
-  $('voteTimer').hidden=solo;$('voteTimer').textContent=s.vt!=null?s.vt:VOTE_TIME;
-  $('tallyOn').textContent='On · '+(s.von||0);$('tallyOff').textContent='Off · '+(s.voff||0);
-  $('tallyOn').parentElement.hidden=solo;
-  $('voteNote').textContent=solo?'Pick one to start your run.':'Majority wins. A tie is settled by a coin flip. Anyone who doesn\'t vote isn\'t counted.';
-  $('voteOn').classList.toggle('on',P.vote&&P.vote.v===1);$('voteOff').classList.toggle('on',P.vote&&P.vote.v===0);
-}
-for(const id of ['voteOn','voteOff'])$(id).addEventListener('click',()=>{
-  const v=+$(id).dataset.v;audioInit();
-  if(mode==='solo'){WS=newWorld();simStartRun(WS,[{key:myKey(),cs:0}],0,v,false);S=packW(WS);enterRun(S);return;}
-  if(S&&S.st===3){P.vote={id:S.vid,v};renderVote();sendPresence();}
-});
+function renderVote(){}
+// solo: pick a difficulty and go. Permadeath is gone; respawns come from the difficulty
+for(const b of document.querySelectorAll('.dpick'))b.addEventListener('click',()=>{
+  if(mode!=='solo')return;audioInit();WS=newWorld();simStartRun(WS,[{key:myKey(),cs:0}],+b.dataset.d,0,false);S=packW(WS);enterRun(S);});
+$('btnDiffBack').addEventListener('click',()=>{mode=null;S=null;show('scrTitle');});
 function showEnd(s){
   closeShop();paused=false;if(document.pointerLockElement)document.exitPointerLock();
   cardT=0;$('classCard').classList.remove('show');$('toast').classList.remove('show');
@@ -2672,14 +2765,17 @@ $('segDiff').addEventListener('click',e=>{const b=e.target.closest('button');if(
 $('btnStart').addEventListener('click',()=>{
   if(!amHost||!WS)return;audioInit();
   WS.pendingSquad=squadPeers().sort((a,b)=>a.presence.jt-b.presence.jt).map(p=>({key:'q'+p.presence.rid,cs:p.presence.cs}));
-  simStartVote(WS);
+  simStartRun(WS,WS.pendingSquad,WS.diff,0,false);
 });
-$('btnSquad').addEventListener('click',()=>{audioInit();show('scrJoin');$('inCode').focus();});
+$('btnSquad').addEventListener('click',()=>{setMobile(false);audioInit();show('scrJoin');$('inCode').focus();});
 $('btnJoin').addEventListener('click',joinSquad);
 $('inCode').addEventListener('keydown',e=>{if(e.key==='Enter')joinSquad();});
 $('btnJoinBack').addEventListener('click',()=>show('scrTitle'));
 $('btnLeave').addEventListener('click',()=>{leaveSquad();show('scrTitle');});
-$('btnSolo').addEventListener('click',()=>{audioInit();leaveSquad();mode='solo';ME.cs=0;ME.peer='solo';S={st:3};showVote();});
+function soloOpen(){audioInit();leaveSquad();mode='solo';ME.cs=0;ME.peer='solo';S={st:3};showVote();}
+$('btnSolo').addEventListener('click',()=>{setMobile(false);soloOpen();});
+$('btnMSolo').addEventListener('click',()=>{setMobile(true);soloOpen();});
+$('btnMSquad').addEventListener('click',()=>{setMobile(true);audioInit();show('scrJoin');$('inCode').focus();});
 $('btnResume').addEventListener('click',resume);
 $('btnQuit').addEventListener('click',()=>{paused=false;setHudVisible(false);clearWorldMirror();clearRemoteBodies();P.run=0;P.alive=false;if(mode==='squad')leaveSquad();mode='none';show('scrTitle');});
 $('btnAgain').addEventListener('click',()=>{if(!S||S.st!==2||!S.rp)return;P.rpv={id:S.rp[2],v:1};sendPresence();renderReplay(S);});
@@ -2691,28 +2787,28 @@ $('btnEndTitle').addEventListener('click',()=>{if(mode==='squad'){if(S&&S.rp){P.
 const XH={w:'rgba(233,228,214,.85)',g:'#5dff6a',y:'#ffe14a',c:'#4ae8ff',r:'#ff4a4a'};
 function applyLook(){document.documentElement.style.setProperty('--xh',XH[OPT.xc]||XH.w);applyVolume();$('fpsMeter').hidden=!OPT.fpsShow;resize();
   const r=OPT.res;$('resNote').textContent=r==='auto'?'':'Drawing at '+r+'p'+(+r>innerHeight*(window.devicePixelRatio||1)?' (above your screen: sharper, but heavier)':'')+'.';}
-function renderRatio(){const dpr=window.devicePixelRatio||1,auto=OPT.gfx==='low'?1:Math.min(dpr,isTouch?1.25:OPT.gfx==='med'?1:1.5);
+function renderRatio(){const dpr=window.devicePixelRatio||1,auto=OPT.gfx==='low'?1:Math.min(dpr,touchDev?1.25:OPT.gfx==='med'?1:1.5);
   if(!OPT.res||OPT.res==='auto')return auto;return Math.max(.3,Math.min(4,(+OPT.res)/Math.max(1,innerHeight)));}
 (function bindOpt(){
-  const DEF2={sfx:100,vvol:100,bright:100,hud:100,res:'auto',gfx:OPT.low?'low':'high',fpsCap:0,xc:'w',bob:true,fpsShow:false,bgmute:false};
+  const DEF2={sfx:100,vvol:100,bright:100,hud:100,res:'auto',gfx:OPT.low?'low':'high',fpsCap:0,xc:'w',bob:true,fpsShow:false,bgmute:false,fads:'off',tsens:5};
   for(const k in DEF2)if(OPT[k]===undefined)OPT[k]=DEF2[k];
   if(OPT.mates===undefined)OPT.mates=true;OPT.low=OPT.gfx==='low';
-  const ranges=[['oVol','vol'],['oSfx','sfx'],['oVvol','vvol'],['oSens','sens'],['oPad','pad'],['oAds','ads'],['oFov','fov'],['oBright','bright'],['oHud','hud']];
+  const ranges=[['oVol','vol'],['oSfx','sfx'],['oVvol','vvol'],['oSens','sens'],['oPad','pad'],['oAds','ads'],['oFov','fov'],['oTsens','tsens'],['oBright','bright'],['oHud','hud']];
   const checks=[['oTog','tog'],['oInv','inv'],['oAim','assist'],['oPtt','ptt'],['oMates','mates'],['oBob','bob'],['oFpsShow','fpsShow'],['oBgMute','bgmute']];
-  const selects=[['oRes','res'],['oGfx','gfx'],['oFps','fpsCap'],['oXc','xc']];
+  const selects=[['oRes','res'],['oGfx','gfx'],['oFps','fpsCap'],['oXc','xc'],['oFads','fads']];
   const sync=()=>{for(const [id,k] of ranges){$(id).value=OPT[k];$(id+'V').textContent=OPT[k]+(['bright','hud','sfx','vvol','vol'].includes(k)?'%':'');}
     for(const [id,k] of checks)$(id).checked=!!OPT[k];for(const [id,k] of selects)$(id).value=String(OPT[k]);applyLook();};
   for(const [id,k] of ranges)$(id).addEventListener('input',()=>{OPT[k]=+$(id).value;sync();saveOpt();});
   for(const [id,k] of checks)$(id).addEventListener('change',()=>{OPT[k]=$(id).checked;P.aimLatch=false;sync();saveOpt();});
   for(const [id,k] of selects)$(id).addEventListener('change',()=>{OPT[k]=k==='fpsCap'?+$(id).value:$(id).value;OPT.low=OPT.gfx==='low';sync();saveOpt();resize();});
-  $('oFull').addEventListener('change',()=>{try{if($('oFull').checked)document.documentElement.requestFullscreen();else if(document.fullscreenElement)document.exitFullscreen();}catch(e){}});
-  document.addEventListener('fullscreenchange',()=>{$('oFull').checked=!!document.fullscreenElement;resize();});
+  $('oFull').addEventListener('change',()=>{if($('oFull').checked!==isFull())toggleFull();});
+  for(const ev of ['fullscreenchange','webkitfullscreenchange'])document.addEventListener(ev,()=>{$('oFull').checked=isFull();resize();});
   $('optTabs').addEventListener('click',e=>{const bt=e.target.closest('button');if(!bt)return;for(const x of $('optTabs').children)x.classList.toggle('on',x===bt);for(const d of document.querySelectorAll('#scrOpt .opts'))d.hidden=d.dataset.tab!==bt.dataset.t;});
   $('btnOptReset').addEventListener('click',()=>{const keep={voice:OPT.voice};Object.assign(OPT,OPT_DEF,DEF2,{gfx:'high',mates:true,ptt:false},keep);OPT.low=false;saveOpt();sync();resize();toast('','Settings reset');});
   document.addEventListener('visibilitychange',applyVolume);window.addEventListener('blur',()=>setTimeout(applyVolume,0));window.addEventListener('focus',applyVolume);
   sync();
 })();
-const openOpt=from=>{optReturn=from;for(const s of SCREENS)$(s).hidden=s!=='scrOpt';};
+const openOpt=from=>{optReturn=from;$('scrOpt').classList.toggle('mobView',inGame()?isTouch:(isTouch||touchDev));for(const s of SCREENS)$(s).hidden=s!=='scrOpt';};
 const openCtl=from=>{ctlReturn=from;for(const s of SCREENS)$(s).hidden=s!=='scrCtl';renderCtl(lastInput==='pad'?'xbox':isTouch?'touch':'kbm');};
 const backTo=id=>{for(const s of SCREENS)$(s).hidden=s!==id;};
 $('btnOptT').addEventListener('click',()=>openOpt('scrTitle'));$('btnOptL').addEventListener('click',()=>openOpt('scrLobby'));$('btnOptP').addEventListener('click',()=>openOpt('scrPause'));
@@ -2720,25 +2816,25 @@ $('btnCtlT').addEventListener('click',()=>openCtl('scrTitle'));$('btnCtlP').addE
 $('btnOptDone').addEventListener('click',()=>backTo(optReturn));$('btnCtlDone').addEventListener('click',()=>backTo(ctlReturn));
 const CTL=[
   ['Move','WASD','Left stick','Left stick','Left thumb'],
-  ['Look','Mouse','Right stick','Right stick','Drag the right side'],
-  ['Aim down sights','Right mouse (hold)','LT','L2','AIM (toggle)'],
-  ['Fire','Left mouse','RT','R2','FIRE'],
-  ['Reload','R','X (tap)','Square (tap)','RLD'],
+  ['Look','Mouse','Right stick','Right stick','Right stick, or slide a held fire button (or drag the open right side)'],
+  ['Aim down sights','Right mouse (hold)','LT','L2','Scope button (toggle)'],
+  ['Fire','Left mouse','RT','R2','Bullet buttons (right or left)'],
+  ['Reload','R','X (tap)','Square (tap)','Circle arrow'],
   ['Use, buy, Adrenaline','F (hold for Adrenaline)','X (hold)','Square (hold)','USE (hold for Adrenaline)'],
-  ['Melee (knife)','V','R3','R3','KNIFE'],
+  ['Melee (knife)','V','R3','R3','Double tap an open spot on the screen'],
   ['Sprint','Shift','L3','L3','Push the stick to the edge'],
-  ['Jump','Space','A','Cross','—'],
-  ['Crouch','C','B','Circle','—'],
-  ['Switch weapon','Mouse wheel, 1–3','Y','Triangle','SWAP'],
-  ['Grenade','G','RB','R1','GREN'],
-  ['Noise maker','Q','LB','L1','TAC'],
-  ['Claymore (Demolitions)','T','D-pad down','D-pad down','CLAY'],
-  ['Class ability','X','D-pad up','D-pad up','ABIL'],
+  ['Jump','Space','A','Cross','Double tap the stance button'],
+  ['Crouch','C','B','Circle','Stance button (tap to crouch or stand)'],
+  ['Switch weapon','Mouse wheel, 1–3','Y','Triangle','Arrows button, or tap a gun in the bottom bar'],
+  ['Grenade','G','RB','R1','Throw button (when grenade is picked)'],
+  ['Noise maker','Q','LB','L1','Cycle button picks it, then Throw'],
+  ['Claymore (Demolitions)','T','D-pad down','D-pad down','Cycle button picks it, then Throw'],
+  ['Class ability','X','D-pad up','D-pad up','Lightning button'],
   ['Thermal optic','Aim with one fitted','LT','L2','AIM'],
   ['Supply menu','Mouse','D-pad, A, B','D-pad, Cross, Circle','Tap'],
-  ['Scoreboard (toggle)','Tab','View','Share / Touchpad','SCORE'],
+  ['Scoreboard (toggle)','Tab','View','Share / Touchpad','List button, top right'],
   ['Mute mic (GitHub link)','M','—','—','—'],
-  ['Menu','Esc','Menu','Options','II'],
+  ['Menu','Esc','Menu','Options','Pause button, top right'],
   ['Next spectated player','Left mouse, → or Space','A, RT or RB','Cross, R2 or R1','Tap the screen'],
   ['Previous spectated player','Right mouse or ←','LB or LT','L1 or L2','—']
 ];
@@ -2874,9 +2970,10 @@ function localPlayer(dt){
     if(keys[BIND.kb.fwd]||keys.arrowup)mz-=1;if(keys[BIND.kb.back]||keys.arrowdown)mz+=1;if(keys[BIND.kb.left]||keys.arrowleft)mx-=1;if(keys[BIND.kb.right]||keys.arrowright)mx+=1;
     sprint=!!keys[BIND.kb.sprint];P.crouchHold=!!keys.control;
     if(isTouch&&joy.id!==null){mx=joy.vx;mz=joy.vy;sprint=Math.hypot(mx,mz)>.92;}
+    if(isTouch){const v=touchLookVec();if(v){const dz=.1,cv=a=>Math.abs(a)<dz?0:Math.sign(a)*Math.pow((Math.abs(a)-dz)/(1-dz),1.6),rate=2.2*((OPT.tsens||5)/5);lookBy(cv(v.vx)*rate*dt,cv(v.vy)*rate*.65*dt);}}
     if(padIn.mx||padIn.mz){mx=padIn.mx;mz=padIn.mz;sprint=padIn.sprint;}
   }
-  const wantAim=(aimInput||touchAim)&&!shopFor&&P.reloadT<=0&&!(sprint&&mz<0);
+  const wantAim=(aimInput||touchAim||(isTouch&&fireAim))&&!shopFor&&P.reloadT<=0&&!(sprint&&mz<0);
   P.ads+=((wantAim?1:0)-P.ads)*Math.min(1,dt*12);if(P.ads<.01)P.ads=0;
   const firing=P.firing||padIn.fire;
   if((firing&&!shopFor&&!paused)){const w=WEAP[P.cur];if(w.auto)fire();else if(!P.firedThisPress){fire();P.firedThisPress=true;}}
@@ -4418,7 +4515,7 @@ function v3Clear(){
 /* ---- scoreboard: a toggle, so you can keep moving and shooting with it up ---- */
 let scoreOn=false,scoreT=0;
 function toggleMates(){OPT.mates=OPT.mates===false;saveOpt();if($('oMates'))$('oMates').checked=OPT.mates;toast('',OPT.mates?'Teammate info on':'Teammate info off');}
-function toggleScore(){scoreOn=!scoreOn;if(scoreOn){$('classCard').classList.remove('show');cardT=0;}$('score').hidden=!scoreOn;scoreT=0;$('scoreHint').textContent=(lastInput==='pad'?'View button':isTouch?'SCORE':'Tab')+' to hide';}
+function toggleScore(){scoreOn=!scoreOn;if(scoreOn){$('classCard').classList.remove('show');cardT=0;}$('score').hidden=!scoreOn;scoreT=0;$('scoreHint').textContent=(lastInput==='pad'?'View button':isTouch?'Tap the list button':'Tab')+' to hide';}
 function renderScore(dt){
   if(!scoreOn||!S)return;scoreT-=dt;if(scoreT>0)return;scoreT=.25;
   const rows=['<tr><th>Player</th><th>Health</th><th>Armor</th><th>Credits</th><th>Kills</th><th>Heads</th></tr>'],ro=S.ro||{},k=myKey(),x=S.x||{};
