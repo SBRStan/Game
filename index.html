@@ -414,6 +414,7 @@ html.firing .rlock{opacity:.35;pointer-events:none}
       <label for="oHud">HUD size <output id="oHudV"></output></label><input id="oHud" type="range" min="50" max="130" step="5">
       <label for="oXc">Crosshair colour</label><select id="oXc"><option value="w">White</option><option value="g">Green</option><option value="y">Yellow</option><option value="c">Cyan</option><option value="r">Red</option></select>
       <label for="oZspr">Realistic 2D zombies (test)</label><input id="oZspr" type="checkbox">
+      <label for="oPost">Film look on High (glow, contact shadows, grade)</label><input id="oPost" type="checkbox">
       <label for="oBob">Weapon bob while moving</label><input id="oBob" type="checkbox">
       <label for="oFpsShow">Show frame rate</label><input id="oFpsShow" type="checkbox">
     </div>
@@ -467,7 +468,569 @@ html.firing .rlock{opacity:.35;pointer-events:none}
     <div class="row"><button class="cta" id="btnAgain" type="button">Back to squad</button><button class="ghost" id="btnEndTitle" type="button">Main menu</button></div>
   </div>
 </div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js"></script>
+<script>/* three.js r128 examples (MIT): Pass, CopyShader, LuminosityHighPassShader, UnrealBloomPass */
+( function () {
+
+	class Pass {
+
+		constructor() {
+
+			// if set to true, the pass is processed by the composer
+			this.enabled = true; // if set to true, the pass indicates to swap read and write buffer after rendering
+
+			this.needsSwap = true; // if set to true, the pass clears its buffer before rendering
+
+			this.clear = false; // if set to true, the result of the pass is rendered to screen. This is set automatically by EffectComposer.
+
+			this.renderToScreen = false;
+
+		}
+
+		setSize( ) {}
+
+		render( ) {
+
+			console.error( 'THREE.Pass: .render() must be implemented in derived pass.' );
+
+		}
+
+	} // Helper for passes that need to fill the viewport with a single quad.
+
+
+	const _camera = new THREE.OrthographicCamera( - 1, 1, 1, - 1, 0, 1 ); // https://github.com/mrdoob/three.js/pull/21358
+
+
+	const _geometry = new THREE.BufferGeometry();
+
+	_geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( [ - 1, 3, 0, - 1, - 1, 0, 3, - 1, 0 ], 3 ) );
+
+	_geometry.setAttribute( 'uv', new THREE.Float32BufferAttribute( [ 0, 2, 0, 0, 2, 0 ], 2 ) );
+
+	class FullScreenQuad {
+
+		constructor( material ) {
+
+			this._mesh = new THREE.Mesh( _geometry, material );
+
+		}
+
+		dispose() {
+
+			this._mesh.geometry.dispose();
+
+		}
+
+		render( renderer ) {
+
+			renderer.render( this._mesh, _camera );
+
+		}
+
+		get material() {
+
+			return this._mesh.material;
+
+		}
+
+		set material( value ) {
+
+			this._mesh.material = value;
+
+		}
+
+	}
+
+	THREE.FullScreenQuad = FullScreenQuad;
+	THREE.Pass = Pass;
+
+} )();
+( function () {
+
+	/**
+ * Full-screen textured quad shader
+ */
+	var CopyShader = {
+		uniforms: {
+			'tDiffuse': {
+				value: null
+			},
+			'opacity': {
+				value: 1.0
+			}
+		},
+		vertexShader:
+  /* glsl */
+  `
+
+		varying vec2 vUv;
+
+		void main() {
+
+			vUv = uv;
+			gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+
+		}`,
+		fragmentShader:
+  /* glsl */
+  `
+
+		uniform float opacity;
+
+		uniform sampler2D tDiffuse;
+
+		varying vec2 vUv;
+
+		void main() {
+
+			vec4 texel = texture2D( tDiffuse, vUv );
+			gl_FragColor = opacity * texel;
+
+		}`
+	};
+
+	THREE.CopyShader = CopyShader;
+
+} )();
+( function () {
+
+	/**
+ * Luminosity
+ * http://en.wikipedia.org/wiki/Luminosity
+ */
+
+	const LuminosityHighPassShader = {
+		shaderID: 'luminosityHighPass',
+		uniforms: {
+			'tDiffuse': {
+				value: null
+			},
+			'luminosityThreshold': {
+				value: 1.0
+			},
+			'smoothWidth': {
+				value: 1.0
+			},
+			'defaultColor': {
+				value: new THREE.Color( 0x000000 )
+			},
+			'defaultOpacity': {
+				value: 0.0
+			}
+		},
+		vertexShader:
+  /* glsl */
+  `
+
+		varying vec2 vUv;
+
+		void main() {
+
+			vUv = uv;
+
+			gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+
+		}`,
+		fragmentShader:
+  /* glsl */
+  `
+
+		uniform sampler2D tDiffuse;
+		uniform vec3 defaultColor;
+		uniform float defaultOpacity;
+		uniform float luminosityThreshold;
+		uniform float smoothWidth;
+
+		varying vec2 vUv;
+
+		void main() {
+
+			vec4 texel = texture2D( tDiffuse, vUv );
+
+			vec3 luma = vec3( 0.299, 0.587, 0.114 );
+
+			float v = dot( texel.xyz, luma );
+
+			vec4 outputColor = vec4( defaultColor.rgb, defaultOpacity );
+
+			float alpha = smoothstep( luminosityThreshold, luminosityThreshold + smoothWidth, v );
+
+			gl_FragColor = mix( outputColor, texel, alpha );
+
+		}`
+	};
+
+	THREE.LuminosityHighPassShader = LuminosityHighPassShader;
+
+} )();
+( function () {
+
+	/**
+ * UnrealBloomPass is inspired by the bloom pass of Unreal Engine. It creates a
+ * mip map chain of bloom textures and blurs them with different radii. Because
+ * of the weighted combination of mips, and because larger blurs are done on
+ * higher mips, this effect provides good quality and performance.
+ *
+ * Reference:
+ * - https://docs.unrealengine.com/latest/INT/Engine/Rendering/PostProcessEffects/Bloom/
+ */
+
+	class UnrealBloomPass extends THREE.Pass {
+
+		constructor( resolution, strength, radius, threshold ) {
+
+			super();
+			this.strength = strength !== undefined ? strength : 1;
+			this.radius = radius;
+			this.threshold = threshold;
+			this.resolution = resolution !== undefined ? new THREE.Vector2( resolution.x, resolution.y ) : new THREE.Vector2( 256, 256 ); // create color only once here, reuse it later inside the render function
+
+			this.clearColor = new THREE.Color( 0, 0, 0 ); // render targets
+
+			const pars = {
+				minFilter: THREE.LinearFilter,
+				magFilter: THREE.LinearFilter,
+				format: THREE.RGBAFormat
+			};
+			this.renderTargetsHorizontal = [];
+			this.renderTargetsVertical = [];
+			this.nMips = 5;
+			let resx = Math.round( this.resolution.x / 2 );
+			let resy = Math.round( this.resolution.y / 2 );
+			this.renderTargetBright = new THREE.WebGLRenderTarget( resx, resy, pars );
+			this.renderTargetBright.texture.name = 'UnrealBloomPass.bright';
+			this.renderTargetBright.texture.generateMipmaps = false;
+
+			for ( let i = 0; i < this.nMips; i ++ ) {
+
+				const renderTargetHorizonal = new THREE.WebGLRenderTarget( resx, resy, pars );
+				renderTargetHorizonal.texture.name = 'UnrealBloomPass.h' + i;
+				renderTargetHorizonal.texture.generateMipmaps = false;
+				this.renderTargetsHorizontal.push( renderTargetHorizonal );
+				const renderTargetVertical = new THREE.WebGLRenderTarget( resx, resy, pars );
+				renderTargetVertical.texture.name = 'UnrealBloomPass.v' + i;
+				renderTargetVertical.texture.generateMipmaps = false;
+				this.renderTargetsVertical.push( renderTargetVertical );
+				resx = Math.round( resx / 2 );
+				resy = Math.round( resy / 2 );
+
+			} // luminosity high pass material
+
+
+			if ( THREE.LuminosityHighPassShader === undefined ) console.error( 'THREE.UnrealBloomPass relies on THREE.LuminosityHighPassShader' );
+			const highPassShader = THREE.LuminosityHighPassShader;
+			this.highPassUniforms = THREE.UniformsUtils.clone( highPassShader.uniforms );
+			this.highPassUniforms[ 'luminosityThreshold' ].value = threshold;
+			this.highPassUniforms[ 'smoothWidth' ].value = 0.01;
+			this.materialHighPassFilter = new THREE.ShaderMaterial( {
+				uniforms: this.highPassUniforms,
+				vertexShader: highPassShader.vertexShader,
+				fragmentShader: highPassShader.fragmentShader,
+				defines: {}
+			} ); // Gaussian Blur Materials
+
+			this.separableBlurMaterials = [];
+			const kernelSizeArray = [ 3, 5, 7, 9, 11 ];
+			resx = Math.round( this.resolution.x / 2 );
+			resy = Math.round( this.resolution.y / 2 );
+
+			for ( let i = 0; i < this.nMips; i ++ ) {
+
+				this.separableBlurMaterials.push( this.getSeperableBlurMaterial( kernelSizeArray[ i ] ) );
+				this.separableBlurMaterials[ i ].uniforms[ 'texSize' ].value = new THREE.Vector2( resx, resy );
+				resx = Math.round( resx / 2 );
+				resy = Math.round( resy / 2 );
+
+			} // Composite material
+
+
+			this.compositeMaterial = this.getCompositeMaterial( this.nMips );
+			this.compositeMaterial.uniforms[ 'blurTexture1' ].value = this.renderTargetsVertical[ 0 ].texture;
+			this.compositeMaterial.uniforms[ 'blurTexture2' ].value = this.renderTargetsVertical[ 1 ].texture;
+			this.compositeMaterial.uniforms[ 'blurTexture3' ].value = this.renderTargetsVertical[ 2 ].texture;
+			this.compositeMaterial.uniforms[ 'blurTexture4' ].value = this.renderTargetsVertical[ 3 ].texture;
+			this.compositeMaterial.uniforms[ 'blurTexture5' ].value = this.renderTargetsVertical[ 4 ].texture;
+			this.compositeMaterial.uniforms[ 'bloomStrength' ].value = strength;
+			this.compositeMaterial.uniforms[ 'bloomRadius' ].value = 0.1;
+			this.compositeMaterial.needsUpdate = true;
+			const bloomFactors = [ 1.0, 0.8, 0.6, 0.4, 0.2 ];
+			this.compositeMaterial.uniforms[ 'bloomFactors' ].value = bloomFactors;
+			this.bloomTintColors = [ new THREE.Vector3( 1, 1, 1 ), new THREE.Vector3( 1, 1, 1 ), new THREE.Vector3( 1, 1, 1 ), new THREE.Vector3( 1, 1, 1 ), new THREE.Vector3( 1, 1, 1 ) ];
+			this.compositeMaterial.uniforms[ 'bloomTintColors' ].value = this.bloomTintColors; // copy material
+
+			if ( THREE.CopyShader === undefined ) {
+
+				console.error( 'THREE.UnrealBloomPass relies on THREE.CopyShader' );
+
+			}
+
+			const copyShader = THREE.CopyShader;
+			this.copyUniforms = THREE.UniformsUtils.clone( copyShader.uniforms );
+			this.copyUniforms[ 'opacity' ].value = 1.0;
+			this.materialCopy = new THREE.ShaderMaterial( {
+				uniforms: this.copyUniforms,
+				vertexShader: copyShader.vertexShader,
+				fragmentShader: copyShader.fragmentShader,
+				blending: THREE.AdditiveBlending,
+				depthTest: false,
+				depthWrite: false,
+				transparent: true
+			} );
+			this.enabled = true;
+			this.needsSwap = false;
+			this._oldClearColor = new THREE.Color();
+			this.oldClearAlpha = 1;
+			this.basic = new THREE.MeshBasicMaterial();
+			this.fsQuad = new THREE.FullScreenQuad( null );
+
+		}
+
+		dispose() {
+
+			for ( let i = 0; i < this.renderTargetsHorizontal.length; i ++ ) {
+
+				this.renderTargetsHorizontal[ i ].dispose();
+
+			}
+
+			for ( let i = 0; i < this.renderTargetsVertical.length; i ++ ) {
+
+				this.renderTargetsVertical[ i ].dispose();
+
+			}
+
+			this.renderTargetBright.dispose();
+
+		}
+
+		setSize( width, height ) {
+
+			let resx = Math.round( width / 2 );
+			let resy = Math.round( height / 2 );
+			this.renderTargetBright.setSize( resx, resy );
+
+			for ( let i = 0; i < this.nMips; i ++ ) {
+
+				this.renderTargetsHorizontal[ i ].setSize( resx, resy );
+				this.renderTargetsVertical[ i ].setSize( resx, resy );
+				this.separableBlurMaterials[ i ].uniforms[ 'texSize' ].value = new THREE.Vector2( resx, resy );
+				resx = Math.round( resx / 2 );
+				resy = Math.round( resy / 2 );
+
+			}
+
+		}
+
+		render( renderer, writeBuffer, readBuffer, deltaTime, maskActive ) {
+
+			renderer.getClearColor( this._oldClearColor );
+			this.oldClearAlpha = renderer.getClearAlpha();
+			const oldAutoClear = renderer.autoClear;
+			renderer.autoClear = false;
+			renderer.setClearColor( this.clearColor, 0 );
+			if ( maskActive ) renderer.state.buffers.stencil.setTest( false ); // Render input to screen
+
+			if ( this.renderToScreen ) {
+
+				this.fsQuad.material = this.basic;
+				this.basic.map = readBuffer.texture;
+				renderer.setRenderTarget( null );
+				renderer.clear();
+				this.fsQuad.render( renderer );
+
+			} // 1. Extract Bright Areas
+
+
+			this.highPassUniforms[ 'tDiffuse' ].value = readBuffer.texture;
+			this.highPassUniforms[ 'luminosityThreshold' ].value = this.threshold;
+			this.fsQuad.material = this.materialHighPassFilter;
+			renderer.setRenderTarget( this.renderTargetBright );
+			renderer.clear();
+			this.fsQuad.render( renderer ); // 2. Blur All the mips progressively
+
+			let inputRenderTarget = this.renderTargetBright;
+
+			for ( let i = 0; i < this.nMips; i ++ ) {
+
+				this.fsQuad.material = this.separableBlurMaterials[ i ];
+				this.separableBlurMaterials[ i ].uniforms[ 'colorTexture' ].value = inputRenderTarget.texture;
+				this.separableBlurMaterials[ i ].uniforms[ 'direction' ].value = UnrealBloomPass.BlurDirectionX;
+				renderer.setRenderTarget( this.renderTargetsHorizontal[ i ] );
+				renderer.clear();
+				this.fsQuad.render( renderer );
+				this.separableBlurMaterials[ i ].uniforms[ 'colorTexture' ].value = this.renderTargetsHorizontal[ i ].texture;
+				this.separableBlurMaterials[ i ].uniforms[ 'direction' ].value = UnrealBloomPass.BlurDirectionY;
+				renderer.setRenderTarget( this.renderTargetsVertical[ i ] );
+				renderer.clear();
+				this.fsQuad.render( renderer );
+				inputRenderTarget = this.renderTargetsVertical[ i ];
+
+			} // Composite All the mips
+
+
+			this.fsQuad.material = this.compositeMaterial;
+			this.compositeMaterial.uniforms[ 'bloomStrength' ].value = this.strength;
+			this.compositeMaterial.uniforms[ 'bloomRadius' ].value = this.radius;
+			this.compositeMaterial.uniforms[ 'bloomTintColors' ].value = this.bloomTintColors;
+			renderer.setRenderTarget( this.renderTargetsHorizontal[ 0 ] );
+			renderer.clear();
+			this.fsQuad.render( renderer ); // Blend it additively over the input texture
+
+			this.fsQuad.material = this.materialCopy;
+			this.copyUniforms[ 'tDiffuse' ].value = this.renderTargetsHorizontal[ 0 ].texture;
+			if ( maskActive ) renderer.state.buffers.stencil.setTest( true );
+
+			if ( this.renderToScreen ) {
+
+				renderer.setRenderTarget( null );
+				this.fsQuad.render( renderer );
+
+			} else {
+
+				renderer.setRenderTarget( readBuffer );
+				this.fsQuad.render( renderer );
+
+			} // Restore renderer settings
+
+
+			renderer.setClearColor( this._oldClearColor, this.oldClearAlpha );
+			renderer.autoClear = oldAutoClear;
+
+		}
+
+		getSeperableBlurMaterial( kernelRadius ) {
+
+			return new THREE.ShaderMaterial( {
+				defines: {
+					'KERNEL_RADIUS': kernelRadius,
+					'SIGMA': kernelRadius
+				},
+				uniforms: {
+					'colorTexture': {
+						value: null
+					},
+					'texSize': {
+						value: new THREE.Vector2( 0.5, 0.5 )
+					},
+					'direction': {
+						value: new THREE.Vector2( 0.5, 0.5 )
+					}
+				},
+				vertexShader: `varying vec2 vUv;
+				void main() {
+					vUv = uv;
+					gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+				}`,
+				fragmentShader: `#include <common>
+				varying vec2 vUv;
+				uniform sampler2D colorTexture;
+				uniform vec2 texSize;
+				uniform vec2 direction;
+
+				float gaussianPdf(in float x, in float sigma) {
+					return 0.39894 * exp( -0.5 * x * x/( sigma * sigma))/sigma;
+				}
+				void main() {
+					vec2 invSize = 1.0 / texSize;
+					float fSigma = float(SIGMA);
+					float weightSum = gaussianPdf(0.0, fSigma);
+					vec3 diffuseSum = texture2D( colorTexture, vUv).rgb * weightSum;
+					for( int i = 1; i < KERNEL_RADIUS; i ++ ) {
+						float x = float(i);
+						float w = gaussianPdf(x, fSigma);
+						vec2 uvOffset = direction * invSize * x;
+						vec3 sample1 = texture2D( colorTexture, vUv + uvOffset).rgb;
+						vec3 sample2 = texture2D( colorTexture, vUv - uvOffset).rgb;
+						diffuseSum += (sample1 + sample2) * w;
+						weightSum += 2.0 * w;
+					}
+					gl_FragColor = vec4(diffuseSum/weightSum, 1.0);
+				}`
+			} );
+
+		}
+
+		getCompositeMaterial( nMips ) {
+
+			return new THREE.ShaderMaterial( {
+				defines: {
+					'NUM_MIPS': nMips
+				},
+				uniforms: {
+					'blurTexture1': {
+						value: null
+					},
+					'blurTexture2': {
+						value: null
+					},
+					'blurTexture3': {
+						value: null
+					},
+					'blurTexture4': {
+						value: null
+					},
+					'blurTexture5': {
+						value: null
+					},
+					'dirtTexture': {
+						value: null
+					},
+					'bloomStrength': {
+						value: 1.0
+					},
+					'bloomFactors': {
+						value: null
+					},
+					'bloomTintColors': {
+						value: null
+					},
+					'bloomRadius': {
+						value: 0.0
+					}
+				},
+				vertexShader: `varying vec2 vUv;
+				void main() {
+					vUv = uv;
+					gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+				}`,
+				fragmentShader: `varying vec2 vUv;
+				uniform sampler2D blurTexture1;
+				uniform sampler2D blurTexture2;
+				uniform sampler2D blurTexture3;
+				uniform sampler2D blurTexture4;
+				uniform sampler2D blurTexture5;
+				uniform sampler2D dirtTexture;
+				uniform float bloomStrength;
+				uniform float bloomRadius;
+				uniform float bloomFactors[NUM_MIPS];
+				uniform vec3 bloomTintColors[NUM_MIPS];
+
+				float lerpBloomFactor(const in float factor) {
+					float mirrorFactor = 1.2 - factor;
+					return mix(factor, mirrorFactor, bloomRadius);
+				}
+
+				void main() {
+					gl_FragColor = bloomStrength * ( lerpBloomFactor(bloomFactors[0]) * vec4(bloomTintColors[0], 1.0) * texture2D(blurTexture1, vUv) +
+						lerpBloomFactor(bloomFactors[1]) * vec4(bloomTintColors[1], 1.0) * texture2D(blurTexture2, vUv) +
+						lerpBloomFactor(bloomFactors[2]) * vec4(bloomTintColors[2], 1.0) * texture2D(blurTexture3, vUv) +
+						lerpBloomFactor(bloomFactors[3]) * vec4(bloomTintColors[3], 1.0) * texture2D(blurTexture4, vUv) +
+						lerpBloomFactor(bloomFactors[4]) * vec4(bloomTintColors[4], 1.0) * texture2D(blurTexture5, vUv) );
+				}`
+			} );
+
+		}
+
+	}
+
+	UnrealBloomPass.BlurDirectionX = new THREE.Vector2( 1.0, 0.0 );
+	UnrealBloomPass.BlurDirectionY = new THREE.Vector2( 0.0, 1.0 );
+
+	THREE.UnrealBloomPass = UnrealBloomPass;
+
+} )();
+</script>
+
 <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js"></script>
 <script>
 (function(){'use strict';
@@ -1456,6 +2019,11 @@ function saveOpt(){try{localStorage.setItem('lastlight-opt',JSON.stringify(OPT))
 /* ================= RENDERER & WORLD ================= */
 const canvas=$('game');
 const renderer=new THREE.WebGLRenderer({canvas,antialias:!touchDev,powerPreference:'high-performance'});
+// three.js r159, run the way r128 drew: colours and textures taken as they are (no automatic sRGB conversion), and the old
+// light units, so every intensity tuned over the last ninety versions still means the same thing
+if(THREE.ColorManagement)THREE.ColorManagement.enabled=false;
+if('outputColorSpace' in renderer)renderer.outputColorSpace=THREE.LinearSRGBColorSpace;
+if('useLegacyLights' in renderer)renderer.useLegacyLights=true;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,touchDev?1.25:1.5));
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(OPT.fov,1,.05,220);camera.rotation.order='YXZ';scene.add(camera);
@@ -1863,7 +2431,7 @@ const smokeG=new THREE.IcosahedronGeometry(1,0);
 function puff(x,y,z,col,size,life,rise){ // one soft smoke ball: drifts up, swells and fades
   if(FXL.length>90)return;const m=new THREE.Mesh(smokeG,new THREE.MeshLambertMaterial({color:col,transparent:true,opacity:.5,depthWrite:false}));
   m.position.set(x,y,z);m.scale.setScalar(size*.5);scene.add(m);FXL.push({m,t:0,life,size,rise:rise||1,vx:(Math.random()-.5)*.4,vz:(Math.random()-.5)*.4,k:'s'});}
-const splashG=new THREE.RingGeometry(.02,.06,8).rotateX(-Math.PI/2),splashM=new THREE.MeshBasicMaterial({color:0xcfd8e0,transparent:true,opacity:.5,depthWrite:false});
+const splashG=new THREE.RingGeometry(.04,.05,14).rotateX(-Math.PI/2),splashM=new THREE.MeshBasicMaterial({color:0x8e9aa8,transparent:true,opacity:.22,depthWrite:false}); // a thin, faint ring: the wet road does the rest
 function fxTick(dt){
   // trees lean and recover in the wind, harder in gusts
   windTick(dt);leafTick(dt);
@@ -1875,7 +2443,7 @@ function fxTick(dt){
     if(d.t>d.life-3)d.m.material.opacity=d.op*Math.max(0,(d.life-d.t)/3);if(d.t>d.life){scene.remove(d.m);d.m.material.dispose();DECALS.splice(i,1);}}
   for(let i=FXL.length-1;i>=0;i--){const p=FXL[i];p.t+=dt;const u=p.t/p.life;
     if(p.k==='s'){p.m.position.y+=dt*.9*p.rise;const wk=Math.min(1,p.t*.8)*.55;p.m.position.x+=(p.vx+WIND.x*wk)*dt;p.m.position.z+=(p.vz+WIND.z*wk)*dt;p.m.scale.setScalar(p.size*(.5+u*1.3));p.m.material.opacity=.5*(1-u);}
-    else{p.m.scale.setScalar(1+u*3);p.m.material.opacity=.5*(1-u);}
+    else{p.m.scale.setScalar(1+u*2);p.m.material.opacity=.22*(1-u)*(1-u);}
     if(u>=1){scene.remove(p.m);if(p.k==='s')p.m.material.dispose();FXL.splice(i,1);}}
   // rain splashes around you, outdoors only
   if(inGame()&&P.alive&&!thermalOn&&typeof LOOK!=='undefined'&&!bld[idx(Math.floor(P.x),Math.floor(P.z))]&&P.y<1){
@@ -3028,9 +3596,9 @@ function renderRatio(){const dpr=window.devicePixelRatio||1,auto=OPT.gfx==='low'
 (function bindOpt(){
   const DEF2={sfx:100,vvol:100,bright:100,hud:100,res:'auto',gfx:OPT.low?'low':'high',fpsCap:0,xc:'w',bob:true,fpsShow:false,bgmute:false,fads:'off',tsens:5,zsprite:true};
   for(const k in DEF2)if(OPT[k]===undefined)OPT[k]=DEF2[k];
-  if(OPT.mates===undefined)OPT.mates=true;OPT.low=OPT.gfx==='low';
+  if(OPT.mates===undefined)OPT.mates=true;if(OPT.post===undefined)OPT.post=true;OPT.low=OPT.gfx==='low';
   const ranges=[['oVol','vol'],['oSfx','sfx'],['oVvol','vvol'],['oSens','sens'],['oPad','pad'],['oAds','ads'],['oFov','fov'],['oTsens','tsens'],['oBright','bright'],['oHud','hud']];
-  const checks=[['oZspr','zsprite'],['oTog','tog'],['oInv','inv'],['oAim','assist'],['oPtt','ptt'],['oMates','mates'],['oBob','bob'],['oFpsShow','fpsShow'],['oBgMute','bgmute']];
+  const checks=[['oZspr','zsprite'],['oTog','tog'],['oInv','inv'],['oAim','assist'],['oPtt','ptt'],['oMates','mates'],['oBob','bob'],['oFpsShow','fpsShow'],['oBgMute','bgmute'],['oPost','post']];
   const selects=[['oRes','res'],['oGfx','gfx'],['oFps','fpsCap'],['oXc','xc'],['oFads','fads']];
   const sync=()=>{for(const [id,k] of ranges){$(id).value=OPT[k];$(id+'V').textContent=OPT[k]+(['bright','hud','sfx','vvol','vol'].includes(k)?'%':'');}
     for(const [id,k] of checks)$(id).checked=!!OPT[k];for(const [id,k] of selects)$(id).value=String(OPT[k]);applyLook();};
@@ -3686,7 +4254,8 @@ function v2Tick(dt,real){
 function v2Mirror(dt){
   for(let i=0;i<WINDOWS.length;i++){const m=WINMESH[i];m.glass.visible=!WINSTATE[i];m.mul.visible=!WINSTATE[i];}
   for(let i=0;i<DOORS.length;i++){const g=DOORMESH[i];if(!g)continue;const st=DOORSTATE[i];g.visible=st!==2;
-    const want=st===1?0:g.userData.open;g.rotation.y+=(want-g.rotation.y)*Math.min(1,dt*6);}
+    const want=st===1?0:g.userData.open,u=g.userData;
+    if(u.leaves){u.r+=(want-u.r)*Math.min(1,dt*6);u.leaves[0].rotation.y=u.r;u.leaves[1].rotation.y=-u.r;}else g.rotation.y+=(want-g.rotation.y)*Math.min(1,dt*6);}
   for(const k in MAKERMESH){const g=MAKERMESH[k],u=g.userData;u.beep-=dt;if(u.beep<=0){u.beep=.5;sfxAt('beep',g.position.x,g.position.z,1.4);}u.l.material=Math.floor(now*4)%2?blinkM:blinkOff;}
   for(const k in STRIKEMESH){const st=STRIKEMESH[k];st.t+=dt;
     if(!st.hit)st.ring.material.opacity=.35+.35*Math.sin(st.t*30);else{st.ring.material.opacity=Math.max(0,.6-st.t);if(st.bolt)st.bolt.visible=st.t<.25&&Math.floor(st.t*30)%3!==1;}}
@@ -3752,7 +4321,7 @@ function thermLights(){ // every light but the even sky and ambient fill goes da
 function v2Render(){
   if(!inGame()&&thermalOn){thermalOn=false;$('scope').style.opacity=0;}
   const want=[thermalOn?'url(#thermPal)':'',FX_FILTER,OPT.bright&&OPT.bright!==100?'brightness('+(OPT.bright/100)+')':''].filter(Boolean).join(' ');if(canvas.style.filter!==want)canvas.style.filter=want;
-  if(!thermalOn){renderer.render(scene,camera);return;}
+  if(!thermalOn){mainRender();return;}
   // pass 1: the world, flat and cold (the canvas filter strips the colour)
   const bg=scene.background.getHex(),fc=scene.fog.color.getHex(),fd=scene.fog.density,mo=moon.visible,ra=rain.visible,so=starMat.visible,hi=hemi.intensity,ai=amb.intensity;
   scene.background.setHex(0x050505);scene.fog.color.setHex(0x050505);scene.fog.density=.03;moon.visible=false;rain.visible=false;starMat.visible=false;
@@ -5399,7 +5968,7 @@ function blobMat(base,sx,sy){const m=base.clone();const key='blob';
   m.transparent=true;m.depthWrite=false;m.polygonOffset=true;m.polygonOffsetFactor=-3;m.polygonOffsetUnits=-3;
   m.onBeforeCompile=sh=>{sh.uniforms.uS={value:new THREE.Vector2(sx,sy)};sh.uniforms.uSeed={value:Math.random()*50};
     sh.fragmentShader='uniform vec2 uS;uniform float uSeed;\nfloat bh(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}\nfloat bn(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(bh(i),bh(i+vec2(1,0)),f.x),mix(bh(i+vec2(0,1)),bh(i+vec2(1,1)),f.x),f.y);}\n'+sh.fragmentShader
-      .replace('#include <alphamap_fragment>','#include <alphamap_fragment>\n{vec2 q=vUv/uS-.5;float r=length(q)*2.;float n=bn(q*5.+uSeed)*.55+bn(q*13.+uSeed*2.)*.25;diffuseColor.a*=1.-smoothstep(.45,.95,r+n*.45-.2);}');};
+      .replace('#include <alphamap_fragment>','#include <alphamap_fragment>\n{vec2 q=vMapUv/uS-.5;float r=length(q)*2.;float n=bn(q*5.+uSeed)*.55+bn(q*13.+uSeed*2.)*.25;diffuseColor.a*=1.-smoothstep(.45,.95,r+n*.45-.2);}');};
   m.customProgramCacheKey=()=>key;return m;}
 function patch(x,z,w,d,rot,mat,T,y){const g=new THREE.PlaneGeometry(w,d);const uv=g.attributes.uv;for(let i=0;i<uv.count;i++)uv.setXY(i,uv.getX(i)*w/T,uv.getY(i)*d/T);
   const m=new THREE.Mesh(g,blobMat(mat,w/T,d/T));m.rotation.x=-Math.PI/2;m.rotation.z=rot;m.position.set(x,y||.04,z);m.receiveShadow=true;scene.add(m);return m;}
@@ -5534,12 +6103,15 @@ const EXT={};
   const edgeM=lam(0x3a3029);
   DOORS.forEach((D,i)=>{const g=DOORMESH[i];if(!g)return;const h=HOUSE[[0,1,1,2,2,3,3][D.id]||1],mats=dTex[h];
     const alongX=D.face==='n'||D.face==='s';g.children.forEach(c=>c.visible=false);
-    for(const j of [0,1]){const a=.49+.98*j;
-      const e=new THREE.Mesh(BOX,edgeM);e.scale.set(alongX?.96:.07,2.33,alongX?.07:.96);e.position.set(alongX?a:0,1.18,alongX?0:a);g.add(e);
+    // a pair of leaves, each on its own hinge at its own side of the opening, so open they fold back against the walls inside
+    g.rotation.y=0;const leaves=[];
+    for(const j of [0,1]){const hinge=j?1.96:0,a=(.49+.98*j)-hinge,pv=new THREE.Group();pv.position.set(alongX?hinge:0,0,alongX?0:hinge);g.add(pv);leaves.push(pv);
+      const e=new THREE.Mesh(BOX,edgeM);e.scale.set(alongX?.96:.07,2.33,alongX?.07:.96);e.position.set(alongX?a:0,1.18,alongX?0:a);pv.add(e);
       for(const s of [1,-1]){const ry=alongX?(s>0?0:Math.PI):(s>0?Math.PI/2:-Math.PI/2);
         const inc=alongX?s>0:s<0;            // does this face's texture run the same way as the leaves?
         const flip=(j===0)===inc;             // the leaf nearest the hinge wants its handle on the far edge
-        card(mats[flip?1:0],.96,2.33,alongX?a:s*.04,1.18,alongX?s*.04:a,ry,g);}}
+        card(mats[flip?1:0],.96,2.33,alongX?a:s*.04,1.18,alongX?s*.04:a,ry,pv);}}
+    g.userData.leaves=leaves;g.userData.r=g.userData.open;leaves[0].rotation.y=g.userData.open;leaves[1].rotation.y=-g.userData.open;
   });
 
   // ---- garage: roll-up door, panelled outside and slatted steel inside; the door through to house C left standing open
@@ -6306,6 +6878,200 @@ function shadowCardsTick(dt){
   }
 }
 function shadowsTick(dt){try{selfShadowTick(dt);shadowCardsTick(dt);}catch(e){if(!SELF.err){SELF.err=1;console.warn('shadows',e);}}}
+/* ================= THE LENS: post-processing on High =================
+   The scene is drawn into a high-range buffer instead of straight to the screen, then finished in three steps:
+   1. contact shadows: from the depth of every pixel, the creases where things meet (wall into floor, a couch on the rug,
+      a zombie's feet on the asphalt) get the soft darkening real light gives them;
+   2. bloom: anything brighter than white (a lamp, a lit window, a flare, a muzzle flash) glows past its edges;
+   3. the film: a filmic curve (deep blacks, mids kept, highlights rolled off instead of clipping), a night grade
+      (cool teal in the shadows, warm in the lamplight, a touch less colour), a vignette, fine grain, and edge smoothing.
+   Thermal keeps its own sensor pipeline; Medium and Low draw straight to the screen as before. */
+const POST={on:false,w:0,h:0,ok:true};
+function postSetup(w,h){
+  const hf=renderer.capabilities.isWebGL2?THREE.HalfFloatType:THREE.UnsignedByteType;
+  if(!POST.rt){
+    const dt=new THREE.DepthTexture();dt.type=THREE.UnsignedIntType;
+    POST.rt=new THREE.WebGLRenderTarget(w,h,{type:hf,minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,depthBuffer:true,depthTexture:dt});
+    POST.rt.texture.generateMipmaps=false;
+    POST.ao=new THREE.WebGLRenderTarget(w>>1,h>>1,{minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,depthBuffer:false});
+    POST.bloom=new THREE.UnrealBloomPass(new THREE.Vector2(w,h),.6,.5,.84);
+    const VS='varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}';
+    // ---- contact shadows (scalable ambient obscurance from depth alone)
+    POST.aoM=new THREE.ShaderMaterial({uniforms:{tD:{value:dt},near:{value:.1},far:{value:100},pinv:{value:new THREE.Vector2()},ps:{value:1},res:{value:new THREE.Vector2()},t:{value:0}},
+      vertexShader:VS,fragmentShader:`#include <packing>
+uniform sampler2D tD;uniform float near,far,ps,t;uniform vec2 pinv,res;varying vec2 vUv;
+vec3 vp(vec2 uv){float d=texture2D(tD,uv).x;float z=perspectiveDepthToViewZ(d,near,far);return vec3((uv*2.-1.)*pinv*-z,z);}
+void main(){float d0=texture2D(tD,vUv).x;if(d0>=.99999){gl_FragColor=vec4(1.);return;}
+ vec3 p=vp(vUv);vec2 px=1.5/res; // 1.5 texels: a half-res pixel centre sits on a full-res texel edge, so a 1-texel step can land on the same texel
+ vec3 pr=vp(vUv+vec2(px.x,0.)),pl=vp(vUv-vec2(px.x,0.)),pu=vp(vUv+vec2(0.,px.y)),pd=vp(vUv-vec2(0.,px.y));
+ vec3 dx=abs(pr.z-p.z)<abs(p.z-pl.z)?pr-p:p-pl,dy=abs(pu.z-p.z)<abs(p.z-pd.z)?pu-p:p-pd;vec3 n=normalize(cross(dx,dy));
+ float R=.55,rad=clamp(R*ps/-p.z,3.,70.);
+ float ign=fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(.06711056,.00583715)))+t);
+ float ao=0.;const int N=12;
+ for(int i=0;i<N;i++){float a=(float(i)+ign)/float(N);float ang=a*37.699+ign*6.2832;vec2 o=vec2(cos(ang),sin(ang))*rad*a/res;
+  vec3 q=vp(vUv+o);vec3 v=q-p;float vv=dot(v,v);float c=dot(v,n)*inversesqrt(vv+1e-4);
+  ao+=max(0.,c-.22)*max(0.,1.-vv/(R*R))*smoothstep(.04,.09,dot(v,n));} // only real creases: wallpaper, decals and rugs sit a centimetre proud and don't count // the cosine bias keeps flat walls from shadowing themselves
+ ao=clamp(1.-ao*2.2/float(N),0.,1.);
+ ao=mix(1.,ao,smoothstep(.9,1.6,-p.z)*(1.-smoothstep(40.,70.,-p.z))); // not on your own gun, and fading out into the distance
+ gl_FragColor=vec4(vec3(ao),1.);}`,depthTest:false,depthWrite:false});
+    // ---- the film
+    POST.finM=new THREE.ShaderMaterial({uniforms:{tC:{value:POST.rt.texture},tA:{value:POST.ao.texture},res:{value:new THREE.Vector2()},t:{value:0},ex:{value:1.9},aoK:{value:.85}},
+      vertexShader:VS,fragmentShader:`uniform sampler2D tC,tA;uniform vec2 res;uniform float t,ex,aoK;varying vec2 vUv;
+float L(vec3 c){return dot(c,vec3(.299,.587,.114));}
+vec3 fxaa(vec2 uv){vec2 px=1./res;vec3 m=texture2D(tC,uv).rgb;
+ vec3 nw=texture2D(tC,uv+vec2(-1.,-1.)*px).rgb,ne=texture2D(tC,uv+vec2(1.,-1.)*px).rgb,sw=texture2D(tC,uv+vec2(-1.,1.)*px).rgb,se=texture2D(tC,uv+vec2(1.,1.)*px).rgb;
+ float lm=L(m),lnw=L(nw),lne=L(ne),lsw=L(sw),lse=L(se);float mn=min(lm,min(min(lnw,lne),min(lsw,lse))),mx=max(lm,max(max(lnw,lne),max(lsw,lse)));
+ if(mx-mn<max(.04,mx*.125))return m;
+ vec2 dir=vec2(-((lnw+lne)-(lsw+lse)),((lnw+lsw)-(lne+lse)));float rd=max((lnw+lne+lsw+lse)*.03125,.0078125);
+ dir=clamp(dir/(min(abs(dir.x),abs(dir.y))+rd),-8.,8.)*px;
+ vec3 a=.5*(texture2D(tC,uv-dir*.1667).rgb+texture2D(tC,uv+dir*.1667).rgb);vec3 b=a*.5+.25*(texture2D(tC,uv-dir*.5).rgb+texture2D(tC,uv+dir*.5).rgb);
+ float lb=L(b);return (lb<mn||lb>mx)?a:b;}
+vec3 aces(vec3 x){return clamp((x*(2.51*x+.03))/(x*(2.43*x+.59)+.14),0.,1.);}
+float h(vec2 p){p=fract(p*vec2(443.897,441.423));p+=dot(p,p.yx+19.19);return fract((p.x+p.y)*p.x);}
+void main(){vec3 c=fxaa(vUv);
+ vec2 q=1.6/res;float ao=.25*(texture2D(tA,vUv+vec2(q.x,q.y)).r+texture2D(tA,vUv+vec2(-q.x,q.y)).r+texture2D(tA,vUv+vec2(q.x,-q.y)).r+texture2D(tA,vUv-q).r);
+ c*=mix(1.,ao,aoK);
+ vec3 lin=pow(max(c,0.),vec3(2.2))*ex;c=pow(aces(lin),vec3(1./2.2));          // the film curve
+ float l=L(c);c=mix(vec3(l),c,.86);                                              // a little less colour
+ c+=vec3(-.006,.008,.022)*pow(1.-l,3.);                                          // cold teal in the dark
+ c*=mix(vec3(1.),vec3(1.05,1.,.92),smoothstep(.45,1.,l));                         // lamplight runs warm
+ vec2 d=vUv-.5;d.x*=res.x/res.y;c*=1.-.32*pow(clamp(length(d)*.95,0.,1.),2.3);    // vignette
+ c+=(h(floor(gl_FragCoord.xy/1.5)+fract(t)*vec2(97.,131.))-.5)*.035*(1.-l*.6);     // grain
+ gl_FragColor=vec4(c,1.);}`,depthTest:false,depthWrite:false});
+    POST.cam=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+    const geo=new THREE.PlaneGeometry(2,2);POST.aoQ=new THREE.Mesh(geo,POST.aoM);POST.finQ=new THREE.Mesh(geo,POST.finM);
+    POST.aoQ.frustumCulled=POST.finQ.frustumCulled=false;
+  }
+  POST.rt.setSize(w,h);POST.ao.setSize(Math.max(1,w>>1),Math.max(1,h>>1));POST.bloom.setSize(w,h);
+  POST.aoM.uniforms.res.value.set(w,h);POST.finM.uniforms.res.value.set(w,h);POST.w=w;POST.h=h;}
+const _pds=new THREE.Vector2();
+function postRender(){
+  renderer.getDrawingBufferSize(_pds);const w=_pds.x|0,h=_pds.y|0;if(w!==POST.w||h!==POST.h)postSetup(w,h);
+  const U=POST.aoM.uniforms,pm=camera.projectionMatrix.elements;
+  U.near.value=camera.near;U.far.value=camera.far;U.pinv.value.set(1/pm[0],1/pm[5]);U.ps.value=h*pm[5]*.5;U.t.value=(now*.618)%1;
+  renderer.setRenderTarget(POST.rt);renderer.clear();renderer.render(scene,camera);
+  const ac=renderer.autoClear;renderer.autoClear=false;
+  renderer.setRenderTarget(POST.ao);renderer.render(POST.aoQ,POST.cam);
+  POST.bloom.render(renderer,null,POST.rt,0,false);
+  POST.finM.uniforms.t.value=now*7.1;
+  renderer.setRenderTarget(null);renderer.render(POST.finQ,POST.cam);
+  renderer.autoClear=ac;}
+function postWanted(){return POST.ok&&OPT.gfx==='high'&&OPT.post!==false&&!LOOK.low;}
+// the frame: v2Render calls this for the ordinary (non-thermal) view
+function mainRender(){
+  if(postWanted()){try{postRender();return;}catch(e){POST.ok=false;console.warn('post effects off',e);renderer.setRenderTarget(null);}}
+  renderer.render(scene,camera);}
+
+/* ================= WET NIGHT: the street reflects what's on it, the lamps hang in the rain =================
+   1. Screen-space reflections on the wet ground (High, with the film look): the road, the sidewalks and the puddles mirror
+      what's really there, lamps, lit windows, the zombies walking toward you, smeared downward the way wet asphalt smears
+      light, broken up by rain ripples. The ground marks itself as wet in the scene buffer's spare alpha channel, so nothing
+      else (lawns, floors indoors, walls) ever reflects.
+   2. Haze round every porch light and street lamp, and a soft cone of light falling through the rain under the street lamps.
+   3. Car glass catches the sky. */
+// ---- 1a. the ground says how wet it is: alpha = .3 x (1 - wetness). Nothing else writes alpha under .5 (cut-outs stop at their alpha test)
+function wetMark(m,w){if(!m||m.userData.wet!==undefined)return;m.userData.wet=w;const prev=m.onBeforeCompile;
+  m.onBeforeCompile=function(sh,r){if(prev)prev.call(this,sh,r);sh.fragmentShader=sh.fragmentShader.replace('#include <dithering_fragment>','#include <dithering_fragment>\n gl_FragColor.a='+(.3*(1-w)).toFixed(3)+';');};
+  const ck=m.customProgramCacheKey;m.customProgramCacheKey=function(){return (ck?ck.call(this):'')+'wet'+w;};m.needsUpdate=true;}
+wetMark(ASPHALT,.75);wetMark(CONCRETE,.42);
+if(LOOK.pud&&LOOK.pud[0])wetMark(LOOK.pud[0].m.material,1);
+// ---- 1b. the reflection pass: march the mirrored view ray through the depth buffer, half resolution
+const WET={};
+function wetSetup(w,h){
+  if(!WET.rt){WET.rt=new THREE.WebGLRenderTarget(w>>1,h>>1,{type:renderer.capabilities.isWebGL2?THREE.HalfFloatType:THREE.UnsignedByteType,minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,depthBuffer:false});
+    WET.m=new THREE.ShaderMaterial({uniforms:{tC:{value:POST.rt.texture},tD:{value:POST.rt.depthTexture},near:{value:.1},far:{value:100},pinv:{value:new THREE.Vector2()},
+        proj:{value:new THREE.Matrix4()},cw:{value:new THREE.Matrix4()},up:{value:new THREE.Vector3()},ex:{value:new THREE.Vector3()},ez:{value:new THREE.Vector3()},t:{value:0},k:{value:1}},
+      vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',fragmentShader:`#include <packing>
+uniform sampler2D tC,tD;uniform float near,far,t,k;uniform vec2 pinv;uniform mat4 proj,cw;uniform vec3 up,ex,ez;varying vec2 vUv;
+float vz(vec2 uv){return perspectiveDepthToViewZ(texture2D(tD,uv).x,near,far);}
+vec3 vp(vec2 uv){float z=vz(uv);return vec3((uv*2.-1.)*pinv*-z,z);}
+float h1(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+void main(){vec4 s=texture2D(tC,vUv);float wet=s.a<.31?1.-s.a/.3:0.;if(wet<.03||texture2D(tD,vUv).x>=.99999){gl_FragColor=vec4(0.);return;}
+ vec3 p=vp(vUv);vec3 wp=(cw*vec4(p,1.)).xyz;
+ // rain ripples: little rings opening and fading on a grid of drop sites
+ vec2 g=wp.xz*3.;vec2 id=floor(g),f=fract(g)-.5;float ph=fract(t*.9+h1(id));vec2 o=vec2(h1(id+3.1),h1(id+7.7))-.5;float d=length(f-o*.5);
+ float ring=sin((d-ph*.5)*40.)*exp(-d*9.)*(1.-ph);vec2 rip=normalize(f-o*.5+1e-4)*ring*.06;
+ vec3 n=normalize(up+ex*rip.x+ez*rip.y);
+ vec3 v=normalize(p);vec3 r=reflect(v,n);
+ float jit=h1(gl_FragCoord.xy+fract(t)*91.);
+ vec3 q=p;float stp=.18;vec2 hit=vec2(-1.);float tr=0.;
+ for(int i=0;i<30;i++){tr+=stp*(1.+float(i)*.16);vec3 c=p+r*(tr+stp*jit);vec4 pc=proj*vec4(c,1.);if(pc.w<=0.)break;vec2 su=pc.xy/pc.w*.5+.5;
+  if(su.x<0.||su.x>1.||su.y<0.||su.y>1.)break;float sz=vz(su);float th=.35+tr*.08;
+  if(c.z<sz&&c.z>sz-th){ // passed behind something: refine between the last two steps
+   float a=tr-stp*(1.+float(i)*.16),b=tr;for(int j=0;j<5;j++){float m=.5*(a+b);vec3 cm=p+r*m;vec4 pm=proj*vec4(cm,1.);vec2 um=pm.xy/pm.w*.5+.5;if(cm.z<vz(um))b=m;else a=m;}
+   vec3 cb=p+r*b;vec4 pb=proj*vec4(cb,1.);hit=pb.xy/pb.w*.5+.5;break;}
+ }
+ if(hit.x<0.){gl_FragColor=vec4(0.);return;}
+ vec2 e=min(hit,1.-hit);float edge=smoothstep(0.,.08,e.x)*smoothstep(0.,.1,e.y);
+ float fr=.14+.86*pow(1.-max(0.,dot(-v,n)),5.); // a soaked road is a poor mirror head-on and a good one at a glance
+ vec3 col=texture2D(tC,hit).rgb;
+ float a=edge*fr*wet*k*(1.-smoothstep(10.,30.,tr));
+ gl_FragColor=vec4(col*a,a);}`,depthTest:false,depthWrite:false});
+    WET.q=new THREE.Mesh(new THREE.PlaneGeometry(2,2),WET.m);WET.q.frustumCulled=false;
+    // the film pass adds the reflection before its curve, smeared downward like light on wet asphalt
+    const F=POST.finM;F.uniforms.tR={value:WET.rt.texture};F.uniforms.rOn={value:1};
+    F.fragmentShader=F.fragmentShader.replace('uniform sampler2D tC,tA;','uniform sampler2D tC,tA,tR;uniform float rOn;')
+      .replace(' c*=mix(1.,ao,aoK);',` c*=mix(1.,ao,aoK);
+ if(rOn>0.){vec3 rf=vec3(0.);float ws=0.;for(int j=-2;j<=5;j++){float wj=exp(-float(j*j)*.08);rf+=texture2D(tR,vUv+vec2(0.,float(j)*2.6/res.y)).rgb*wj;ws+=wj;}c+=rf/ws*2.;}`);
+    F.needsUpdate=true;}
+  WET.rt.setSize(Math.max(1,w>>1),Math.max(1,h>>1));}
+const _wv=new THREE.Vector3();
+function wetPass(){const w=POST.w,h=POST.h;if(!WET.rt||WET.w!==w||WET.h!==h){wetSetup(w,h);WET.w=w;WET.h=h;}
+  const U=WET.m.uniforms,pm=camera.projectionMatrix.elements,vm=camera.matrixWorldInverse;
+  U.near.value=camera.near;U.far.value=camera.far;U.pinv.value.set(1/pm[0],1/pm[5]);U.proj.value.copy(camera.projectionMatrix);U.cw.value.copy(camera.matrixWorld);
+  U.up.value.set(0,1,0).transformDirection(vm);U.ex.value.set(1,0,0).transformDirection(vm);U.ez.value.set(0,0,1).transformDirection(vm);U.t.value=now;
+  U.k.value=.75+.25*(LOOK.wet||0);
+  renderer.setRenderTarget(WET.rt);renderer.render(WET.q,POST.cam);}
+// hook into the post chain: reflections are read from the scene buffer before the bloom is added onto it
+{postRender=function(){
+  renderer.getDrawingBufferSize(_pds);const w=_pds.x|0,h=_pds.y|0;if(w!==POST.w||h!==POST.h)postSetup(w,h);
+  const U=POST.aoM.uniforms,pm=camera.projectionMatrix.elements;
+  U.near.value=camera.near;U.far.value=camera.far;U.pinv.value.set(1/pm[0],1/pm[5]);U.ps.value=h*pm[5]*.5;U.t.value=(now*.618)%1;
+  renderer.setRenderTarget(POST.rt);renderer.clear();renderer.render(scene,camera);
+  const ac=renderer.autoClear;renderer.autoClear=false;
+  renderer.setRenderTarget(POST.ao);renderer.render(POST.aoQ,POST.cam);
+  let rOn=OPT.refl!==false;if(rOn){try{wetPass();}catch(e){OPT.refl=false;rOn=false;console.warn('reflections off',e);}}
+  if(POST.finM.uniforms.rOn)POST.finM.uniforms.rOn.value=rOn?1:0;
+  POST.bloom.render(renderer,null,POST.rt,0,false);
+  POST.finM.uniforms.t.value=now*7.1;
+  renderer.setRenderTarget(null);renderer.render(POST.finQ,POST.cam);
+  renderer.autoClear=ac;};}
+
+// ---- 2. haze round the lamps, light falling through the rain under the street lamps
+(function(){
+  const c=document.createElement('canvas');c.width=c.height=64;const x=c.getContext('2d'),g=x.createRadialGradient(32,32,0,32,32,32);
+  g.addColorStop(0,'rgba(255,255,255,1)');g.addColorStop(.25,'rgba(255,255,255,.45)');g.addColorStop(.6,'rgba(255,255,255,.1)');g.addColorStop(1,'rgba(255,255,255,0)');
+  x.fillStyle=g;x.fillRect(0,0,64,64);const tx=new THREE.CanvasTexture(c);
+  const coneM=new THREE.ShaderMaterial({uniforms:{col:{value:new THREE.Color()},k:{value:1},t:{value:0}},transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,fog:false,
+    vertexShader:'varying float vh;varying vec3 vn,vv;varying vec3 wp;void main(){vh=uv.y;vec4 w=modelMatrix*vec4(position,1.);wp=w.xyz;vn=normalize(mat3(modelMatrix)*normal);vv=normalize(cameraPosition-w.xyz);gl_Position=projectionMatrix*viewMatrix*w;}',
+    fragmentShader:'uniform vec3 col;uniform float k,t;varying float vh;varying vec3 vn,vv,wp;float h(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}void main(){float edge=pow(abs(dot(vn,vv)),1.6);float fall=pow(vh,1.4);float streak=.75+.25*h(vec2(floor(wp.x*9.+wp.z*9.),floor(wp.y*2.-t*14.)));gl_FragColor=vec4(col*edge*fall*streak*.15*k,1.);}'});
+  LOOK.haze=[];
+  // the lamp heads that are actually drawn now: the tallest visible thing standing within half a metre of each light
+  scene.updateMatrixWorld(true);const _bb=new THREE.Box3();
+  const headAt=(x,z,ymax)=>{let top=-1;scene.traverse(o=>{if(!o.isMesh||!o.visible||o.isSprite)return;let vis=true,q=o.parent;while(q){if(!q.visible){vis=false;break;}q=q.parent;}if(!vis)return;
+      _bb.setFromObject(o);if(_bb.max.y>ymax||_bb.max.y-_bb.min.y>7)return;const cx=(_bb.min.x+_bb.max.x)/2,cz=(_bb.min.z+_bb.max.z)/2;
+      if(Math.hypot(cx-x,cz-z)<.6&&_bb.max.y>top)top=_bb.max.y;});return top;};
+  for(const f of LOOK.flicker){const b=f.bulb;if(!b)continue;b.updateWorldMatrix(true,false);const wp=new THREE.Vector3().setFromMatrixPosition(b.matrixWorld);
+    if(f.street){const top=headAt(f.l.position.x,f.l.position.z,6.5);if(top>1.5)wp.set(f.l.position.x,top-.32,f.l.position.z);}
+    const s=new THREE.Sprite(new THREE.SpriteMaterial({map:tx,color:f.l.color.clone(),transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,fog:false}));
+    const s2=new THREE.Sprite(new THREE.SpriteMaterial({map:tx,color:f.l.color.clone(),transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,fog:false,opacity:.16})); // the wide haze the rain holds
+    const sz=f.street?3.4:1.7;s.scale.set(sz,sz,1);s.position.copy(wp);s.renderOrder=5;scene.add(s);s2.scale.set(sz*2.6,sz*2.6,1);s2.position.copy(wp);s2.renderOrder=5;scene.add(s2);
+    let cone=null;if(f.street){const H=wp.y-.05,geo=new THREE.CylinderGeometry(.12,2.3,H,24,1,true).translate(0,-H/2,0);
+      cone=new THREE.Mesh(geo,coneM.clone());cone.material.uniforms.col.value.copy(f.l.color);cone.position.copy(wp);cone.position.y-=.02;cone.renderOrder=4;cone.frustumCulled=false;scene.add(cone);}
+    LOOK.haze.push({f,s,s2,cone,base:sz});}
+})();
+function hazeTick(){const show=!thermalOn&&!OPT.low;
+  for(const h of LOOK.haze||[]){const on=show&&h.f.bulb.visible; // the bulb, not the light: the nearest lamp lends its light to the shadow casterh.s.visible=on;h.s2.visible=on;if(h.cone)h.cone.visible=on;if(!on)continue;
+    const k=1;h.s.material.opacity=.7*k;h.s2.material.opacity=(.14+.08*(LOOK.wet||0))*k;
+    if(h.cone){h.cone.material.uniforms.k.value=k*(1+.6*(LOOK.wet||0));h.cone.material.uniforms.t.value=now;}}}
+// ---- 3. car glass catches the sky
+{const _po=phongOf;phongOf=function(m){const p=_po(m);if(p&&m&&m.envMap&&p!==m&&!p.envMap){p.envMap=m.envMap;p.combine=m.combine;p.reflectivity=m.reflectivity;p.needsUpdate=true;}return p;};}
+for(const c of CARS){if(!c.g)continue;c.g.traverse(o=>{if(!o.isMesh||!o.material||!o.material.color)return;const base=o.material.userData&&o.material.userData.lam||o.material;
+  if(base.color.getHex()!==0x0c1014)return;const g=base.clone();g.envMap=LOOK.env;g.combine=THREE.MixOperation;g.reflectivity=.55;g.color.setHex(0x1a2028);
+  o.material=SHADOW.on?phongOf(g):g;});}
+
+{const _lt=lookTick;lookTick=function(dt){_lt(dt);try{hazeTick();}catch(e){}};}
+
 })();
 </script>
 </body></html>
