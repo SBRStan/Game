@@ -571,6 +571,14 @@ const LOOP={x:40,z:32,r:12};
 const K={WALL:1,RAIL:2,CAR:3,TREE:4,BARREL:5,DOOR:6,POST:7};
 const solid0=new Uint8Array(N),solid1=new Uint8Array(N),kind1=new Uint8Array(N),floor1=new Uint8Array(N),bld=new Uint8Array(N),kind0=new Uint8Array(N),doorCell=new Int8Array(N).fill(-1);
 const stA=new Int8Array(N).fill(-1),stStart=new Float32Array(N),stSign=new Int8Array(N),stLen=new Float32Array(N);
+// the levels, bottom up: floor height, the next floor's height (its ceiling), and that level's per-cell arrays.
+// floor: null = solid earth under the whole level; otherwise per cell 0 = open below, 1 = a floor slab, 2 = earth up to this level.
+// headroom: how far below its ceiling a wall on this level stops blocking (on the ground floor you can stand on the floor above it).
+// four slots in every map, so any map can be swapped in at run time; the cul-de-sac uses two, the other two lie dormant far overhead
+const DORMANT=()=>({y:999,top:1002,solid:new Uint8Array(N),kind:new Uint8Array(N),floor:new Uint8Array(N),headroom:0});
+const LEVELS=[{y:0,top:H0,solid:solid0,kind:kind0,floor:null,headroom:.35},{y:H0,top:H1,solid:solid1,kind:kind1,floor:floor1,headroom:0},DORMANT(),DORMANT()];
+const stBase=new Int8Array(N); // the level a stair cell climbs from (to the one above it)
+function roofAt(i){const b=bld[i];return b?(ONE_STORY[b]?H0:H1):0;}
 const idx=(x,z)=>x+z*MW;
 const inWorld=(x,z)=>x>=0&&z>=0&&x<MW&&z<MD;
 function set0(x,z,k){const i=idx(x,z);solid0[i]=1;kind0[i]=k;}
@@ -703,7 +711,7 @@ const PROPS=[
   {t:'toolchest',x:60,z:41.6,l:0,r:0},{t:'table',x:62,z:45.9,l:0,r:0}
 ];
 const PROPSTATE=PROPS.map(()=>0); // 0 intact, 1 destroyed, 2 in flight
-const propBase=p=>p.l?H0:0;
+const propBase=p=>LEVELS[p.l||0].y;
 const INTER=[
   {type:'station',b:'A',x:33.5,z:17.5,layer:0,face:'w'},
   {type:'wall',w:'sawn',b:'B',x:20.5,z:25.5,layer:0,face:'n'},
@@ -718,7 +726,14 @@ const INTER=[
 const SPAWN_PTS=[[35.5,16.5],[37.5,16.5],[35.5,17.6],[37.5,17.6]];
 
 /* ================= PHYSICS ================= */
-function rampH(i,x,z){const p=stA[i]===1?z:x;return Math.min(1,Math.max(0,(p-stStart[i])*stSign[i]/stLen[i]))*H0;}
+const NL=LEVELS.length;
+// the height of a stair cell under (x,z): from its level's floor up to the next one
+function rampH(i,x,z){const p=stA[i]===1?z:x,b=LEVELS[stBase[i]],t=LEVELS[stBase[i]+1];return b.y+Math.min(1,Math.max(0,(p-stStart[i])*stSign[i]/stLen[i]))*(t.y-b.y);}
+const hasFloor=(L,i)=>L.floor?L.floor[i]>0:true;
+// how tall a solid thing on a level stands, above that level's floor
+function kindTop(L,k){return k===K.CAR?1.5:k===K.BARREL?1:k===K.TREE?6:k===K.RAIL?1.1:L.top-L.y;}
+// the floor a pair of feet belongs to: the highest level whose floor is at or just below them
+function levelY(feet){let y=LEVELS[0].y;for(let l=1;l<NL;l++)if(feet>LEVELS[l].y-.6)y=LEVELS[l].y;return y;}
 // front porches you can stand on: the concrete step, and the shingled awning over the door (you can land on it from the window above)
 const PORCH=[];
 for(const D of DOORS){if(D.kind!=='house')continue;const B=BUILDINGS.find(q=>D.x>=q.x0-1&&D.x<=q.x1+1&&D.z>=q.z0-1&&D.z<=q.z1+1);if(!B||B.front!==D.face)continue;
@@ -727,17 +742,17 @@ for(const D of DOORS){if(D.kind!=='house')continue;const B=BUILDINGS.find(q=>D.x
   box(side?1:2.6,side?2.6:1,.14,'step');box(side?1.7:3.4,side?3.4:1.7,3.01,'awning');}
 function groundAt(x,z,y){
   const cx=Math.floor(x),cz=Math.floor(z);if(!inWorld(cx,cz))return 0;
-  const i=idx(cx,cz);let g=0;
+  const i=idx(cx,cz);let g=LEVELS[0].floor?-1e4:LEVELS[0].y;
   if(stA[i]>=0){const h=rampH(i,x,z);if(h<=y+.6&&h>g)g=h;}
-  if(floor1[i]&&H0<=y+.6&&H0>g)g=H0;
+  for(let l=0;l<NL;l++){const L=LEVELS[l];if(L.floor&&L.floor[i]&&L.y<=y+.6&&L.y>g)g=L.y;}
   for(const p of PORCH)if(x>=p.x0&&x<=p.x1&&z>=p.z0&&z<=p.z1&&p.top<=y+.6&&p.top>g)g=p.top;
   return g;
 }
 function cellBlocks(cx,cz,feet){
   if(!inWorld(cx,cz))return true;
   const i=idx(cx,cz);
-  if(solid0[i]){const k=kind0[i];const top=k===K.CAR?1.4:H0-.35;if(feet<top)return true;}
-  if(solid1[i]&&feet+1.7>H0+.05&&feet<H1)return true;
+  for(let l=0;l<NL;l++){const L=LEVELS[l];if(!L.solid[i])continue;
+    const top=L.kind[i]===K.CAR?L.y+1.4:L.top-L.headroom;if(feet+1.7>L.y+.05&&feet<top)return true;}
   return false;
 }
 function collides(x,z,r,feet){
@@ -747,7 +762,7 @@ function collides(x,z,r,feet){
     const nx=Math.max(cx,Math.min(x,cx+1)),nz=Math.max(cz,Math.min(z,cz+1));
     const dx=x-nx,dz=z-nz;if(dx*dx+dz*dz<r*r)return true;
   }
-  const fl=feet>H0-.6?H0:0;
+  const fl=levelY(feet);
   for(let i=0;i<PROPS.length;i++){
     if(PROPSTATE[i]!==0)continue;const p=PROPS[i];
     if(Math.abs(propBase(p)-fl)>.5)continue;
@@ -760,14 +775,13 @@ function moveEnt(e,dx,dz,r){
   if(!collides(e.x,e.z+dz,r,e.y))e.z+=dz;
 }
 function solidPt(x,y,z){
-  if(y<=0)return true;
+  if(y<=LEVELS[0].y)return true;
   const cx=Math.floor(x),cz=Math.floor(z);if(!inWorld(cx,cz))return false;
   const i=idx(cx,cz);
-  if(solid0[i]){const k=kind0[i];const top=k===K.CAR?1.5:k===K.BARREL?1:k===K.TREE?6:k===K.RAIL?1.1:H0;if(y<top)return true;}
-  if(solid1[i]&&y>=H0&&y<(kind1[i]===2?H0+1.1:H1))return true;
-  if(floor1[i]&&y>H0-.2&&y<H0)return true;
-  const b=bld[i];
-  if(b){const top=ONE_STORY[b]?H0:H1;if(y>top&&y<top+.3)return true;}
+  for(let l=0;l<NL;l++){const L=LEVELS[l];
+    if(L.solid[i]&&y>=L.y&&y<L.y+kindTop(L,L.kind[i]))return true;
+    const f=L.floor?L.floor[i]:0;if(f===1&&y>L.y-.2&&y<L.y)return true;if(f===2&&y<L.y)return true;}
+  const r=roofAt(i);if(r&&y>r&&y<r+.3)return true;
   if(stA[i]>=0&&y<rampH(i,x,z)&&y>rampH(i,x,z)-.3)return true;
   return false;
 }
@@ -791,15 +805,19 @@ function rayProp(ox,oy,oz,dx,dy,dz,maxT){
   return best;
 }
 
-/* ================= NAV — multi-source flow field over both floors ================= */
-const NN=N*2,fdist=new Uint16Array(NN),fq=new Int32Array(NN),links=new Int32Array(NN).fill(-1);
-for(const [a,b] of LINKS){links[a]=b;links[b]=a;}
-function walkable(n){const l=n>=N?1:0,i=n-l*N;return l?(floor1[i]===1&&!solid1[i]):(!solid0[i]||kind0[i]===K.DOOR);}
+/* ================= NAV — multi-source flow field over every level ================= */
+const NN=N*NL,fdist=new Uint16Array(NN),fq=new Int32Array(NN),links=new Int32Array(NN).fill(-1),links2=new Int32Array(NN).fill(-1);
+// a stair top can lead two ways: each spot holds up to two links to another level
+function addLink(a,b){for(const [p,q] of [[a,b],[b,a]]){if(links[p]<0||links[p]===q)links[p]=q;else links2[p]=q;}}
+for(const [a,b] of LINKS)addLink(a,b);
+function walkable(n){const l=(n/N)|0,i=n-l*N,L=LEVELS[l];return hasFloor(L,i)&&(!L.solid[i]||L.kind[i]===K.DOOR);}
 const DIR4=[[1,0],[-1,0],[0,1],[0,-1]],DIR8=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
 function nodeOf(x,y,z){
   const cx=Math.floor(x),cz=Math.floor(z);if(!inWorld(cx,cz))return -1;
   const i=idx(cx,cz);
-  if(y>H0-.5&&floor1[i]&&!solid1[i])return i+N;
+  for(let l=NL-1;l>0;l--)if(y>LEVELS[l].y-.5&&walkable(i+l*N))return i+l*N;
+  // nowhere to stand: the level of the ground here (earth), else the bottom one
+  for(let l=NL-1;l>0;l--){const L=LEVELS[l];if(y>L.y-.5&&L.floor&&L.floor[i]===2)return i+l*N;}
   return i;
 }
 function bfs(srcs){
@@ -807,29 +825,46 @@ function bfs(srcs){
   let h=0,t=0;
   for(const s of srcs)if(s>=0&&walkable(s)&&fdist[s]!==0){fdist[s]=0;fq[t++]=s;}
   while(h<t){
-    const n=fq[h++],d=fdist[n]+1,l=n>=N?N:0,i=n-l,x=i%MW,z=(i-x)/MW;
+    const n=fq[h++],d=fdist[n]+1,l=((n/N)|0)*N,i=n-l,x=i%MW,z=(i-x)/MW;
     for(const [dx,dz] of DIR4){
       const nx=x+dx,nz=z+dz;if(!inWorld(nx,nz))continue;
       const m=l+idx(nx,nz);if(fdist[m]<=d||!walkable(m))continue;
       fdist[m]=d;fq[t++]=m;
     }
-    const lk=links[n];if(lk>=0&&fdist[lk]>d&&walkable(lk)){fdist[lk]=d;fq[t++]=lk;}
+    for(const lk of [links[n],links2[n]])if(lk>=0&&fdist[lk]>d&&walkable(lk)){fdist[lk]=d;fq[t++]=lk;}
   }
 }
 function flowTarget(x,y,z){
   const n=nodeOf(x,y+.1,z);
   if(n<0||fdist[n]===65535)return null;
-  const l=n>=N?N:0,ii=n-l,cx=ii%MW,cz=(ii-cx)/MW;let best=-1,bd=fdist[n];
+  const l=((n/N)|0)*N,ii=n-l,cx=ii%MW,cz=(ii-cx)/MW;let best=-1,bd=fdist[n];
   for(const [dx,dz] of DIR8){
     const nx=cx+dx,nz=cz+dz;if(!inWorld(nx,nz))continue;
     const m=l+idx(nx,nz);if(!walkable(m))continue;
     if(dx&&dz&&(!walkable(l+idx(cx+dx,cz))||!walkable(l+idx(cx,cz+dz))))continue;
     if(fdist[m]<bd){bd=fdist[m];best=m;}
   }
-  const lk=links[n];if(lk>=0&&fdist[lk]<bd){bd=fdist[lk];best=lk;}
+  for(const lk of [links[n],links2[n]])if(lk>=0&&fdist[lk]<bd){bd=fdist[lk];best=lk;}
   if(best<0)return null;
   const bi=best%N;return [(bi%MW)+.5,Math.floor(bi/MW)+.5];
 }
+/* ---- levels for things that sit on a floor (doors, windows): their level index is .lv (default the ground) ---- */
+function levelOf(o){return LEVELS[o&&o.lv||0];}
+function onLevelOf(o,y){const L=levelOf(o);return y>=L.y&&y<L.top;}
+/* ---- somewhere to put a person: an open floor cell with room around it, away from the others ---- */
+// used by anything that moves a player through walls or floors (the Lord's drag). opts: {from:[x,y,z], min, max, avoid:[[x,z,r]], otherLevel, ok(i,l)}
+function openSpot(opts){
+  const o=opts||{},fx=o.from?o.from[0]:0,fy=o.from?o.from[1]:0,fz=o.from?o.from[2]:0,fl=nodeOf(fx,fy+.1,fz),fL=fl<0?0:(fl/N)|0;
+  const mn=o.min||0,mx=o.max||1e9,cand=[];
+  for(let l=0;l<NL;l++){if(o.otherLevel&&l===fL)continue;const L=LEVELS[l];
+    for(let z=1;z<MD-1;z++)for(let x=1;x<MW-1;x++){const i=idx(x,z),n=i+l*N;
+      if(!walkable(n)||stA[i]>=0||L.solid[i])continue;
+      let room=true;for(const [dx,dz] of DIR8){const j=idx(x+dx,z+dz);if(!walkable(j+l*N)||L.solid[j]){room=false;break;}}if(!room)continue;
+      const cx=x+.5,cz=z+.5,d=Math.hypot(cx-fx,cz-fz);if(d<mn||d>mx)continue;
+      if(o.avoid&&o.avoid.some(a=>Math.hypot(cx-a[0],cz-a[1])<a[2]))continue;
+      if(o.ok&&!o.ok(i,l))continue;
+      cand.push([cx,L.y,cz,l]);}}
+  return cand.length?cand[(Math.random()*cand.length)|0]:null;}
 /* ================= SIM — host-authoritative; no THREE, no DOM ================= */
 const KD={BODY:0,HEAD:1,KNIFE:2,SGB:3,SGH:4,BOOM:5};
 const pickA=a=>a[(Math.random()*a.length)|0];
@@ -2464,9 +2499,9 @@ function addHit(c,dmg,kind){const key='z'+c.id,prev=P.hz[key];const sx=c.blast?c
 function hitTeammate(rm,dmg,px,py,pz){const key=rm.key;P.pv[key]=Math.round(((P.pv[key]||0)+dmg*FF_MULT)*10)/10;burst(px,py,pz,4,bloodM,2);marker('ff');}
 // a closed door or an intact front window where a shot or blade lands
 function structAt(x,y,z){
-  const cx=Math.floor(x),cz=Math.floor(z);if(!inWorld(cx,cz)||y>=H0||y<0)return null;const i=idx(cx,cz);
-  const d=doorCell[i];if(d>=0&&DOORSTATE[d]===1)return {k:'d',i:d};
-  const w=winCell[i];if(w>=0&&!WINSTATE[w])return {k:'w',i:w};
+  const cx=Math.floor(x),cz=Math.floor(z);if(!inWorld(cx,cz))return null;const i=idx(cx,cz);
+  const d=doorCell[i];if(d>=0&&DOORSTATE[d]===1&&onLevelOf(DOORS[d],y))return {k:'d',i:d};
+  const w=winCell[i];if(w>=0&&!WINSTATE[w]&&onLevelOf(WINDOWS[w],y))return {k:'w',i:w};
   return null;
 }
 function damageStruct(s,dmg,x,y,z){
@@ -2688,7 +2723,7 @@ function applyCrate(tier){
 let shopFor=null,shopT=0;
 function nearInteract(){
   let best=null;
-  for(const it of INTER){const ly=it.layer?H0:0;if(Math.abs(P.y-ly)>1.3)continue;const d=Math.hypot(P.x-it.x,P.z-it.z);if(d<1.8&&(!best||d<best.d))best={it,d};}
+  for(const it of INTER){const ly=LEVELS[it.layer||0].y;if(Math.abs(P.y-ly)>1.3)continue;const d=Math.hypot(P.x-it.x,P.z-it.z);if(d<1.8&&(!best||d<best.d))best={it,d};}
   if(best)return best.it;
   for(const D of DOORS){if(P.y>1)continue;const d=Math.hypot(P.x-D.x,P.z-D.z);if(d<2.6)return {type:'door',door:D};}
   for(const id in CRATEMESH){const u=CRATEMESH[id].userData;if(u.land>0||Math.abs(u.y-P.y)>1.3)continue;if(Math.hypot(u.x-P.x,u.z-P.z)<1.8)return {type:'crate',u};}
@@ -3577,9 +3612,9 @@ function explode(kind,x,y,z){
   if(hurtsSquad)for(const p in RM){const r=RM[p];if(!r.alive||!r.inRun)continue;const d=Math.hypot(r.x-x,r.y+1-y,r.z-z);if(d<R&&clear(r.x,r.y+1,r.z))hitTeammate(r,D*.35*(1-d/R),r.x,r.y+1.2,r.z);}
   if(kind==='g'){const d=Math.hypot(P.x-x,P.y+1-y,P.z-z);if(d<R&&clear(P.x,P.y+1,P.z))applyDamage((isDemo()?.5:1)*D*.35*(1-d/R));}
   for(let i=0;i<PROPS.length;i++){if(PROPSTATE[i]!==0)continue;const p=PROPS[i],d=Math.hypot(p.x-x,propBase(p)+.5-y,p.z-z);if(d<R*.7)hitProp(i,kind==='g'?150:400,p.x,propBase(p)+.6,p.z);}
-  if(y<H0-.5){ // doors and front windows near the blast
-    for(const D of DOORS)if(DOORSTATE[D.id]===1&&Math.hypot(D.x-x,D.z-z)<R*.7)damageStruct({k:'d',i:D.id},kind==='g'?DOOR_BLAST_G:DOOR_BLAST_C,D.x,1.2,D.z);
-    for(const w of WINDOWS)if(!WINSTATE[w.id]&&Math.hypot(w.x-x,w.z-z)<R*.8)damageStruct({k:'w',i:w.id},100,w.x,1.6,w.z);
+  { // doors and windows near the blast, on the blast's own floor
+    for(const D of DOORS){const L=levelOf(D);if(DOORSTATE[D.id]===1&&y>L.y-.5&&y<L.top-.5&&Math.hypot(D.x-x,D.z-z)<R*.7)damageStruct({k:'d',i:D.id},kind==='g'?DOOR_BLAST_G:DOOR_BLAST_C,D.x,L.y+1.2,D.z);}
+    for(const w of WINDOWS){const L=levelOf(w);if(!WINSTATE[w.id]&&y>L.y-.5&&y<L.top-.5&&Math.hypot(w.x-x,w.z-z)<R*.8)damageStruct({k:'w',i:w.id},100,w.x,L.y+1.6,w.z);}
   }
 }
 /* ---- explosion visuals: a fixed pool of lights so the renderer never recompiles mid-fight ---- */
@@ -7412,6 +7447,577 @@ function skinWraithTrue(){
   return {g,mats,eyes,wisps,arms,head:H};}
 {const _wt=wraithTrueMesh;wraithTrueMesh=function(){if(OPT.zskin!==false)return skinWraithTrue();return _wt();};}
 
+/* ================= THE MANSION (map two): the shell, swapped in at the start of a run =================
+   Built from the floor plans (maps/mansion/plan.json, shifted 4 m so the lot has a margin for the horde to gather in).
+   Four levels: cellar -3.2 m, ground 0, upper 3.2, attic 6.4, roof 9.6. Walls sit on the cells along each room's west and north edge,
+   plus the house's east and south edge; a door clears a wall cell. Stairs: the grand staircase (ground to upper) and the servants' stairs,
+   three steep one-metre flights side by side in one well (cellar to ground, ground to upper, upper to attic). Storm doors lead down
+   from the side yard to the cellar. For now the house is reached with #mansion on the link; the random map roll comes later. */
+const MANSION=(function(){
+const PLAN={"house": [17, 10, 53, 34], "floors": {"cellar": {"name": "Cellar", "rooms": [{"id": "sstairs", "name": "Servants' stairs", "r": [17, 14, 21, 18], "zone": "circ", "items": ["Narrow stairs, cellar to attic", "The only stairs that reach the cellar"], "note": "", "to": ["Cellar passage", "Scullery"]}, {"id": "cnorth", "name": "Cellar passage", "r": [17, 18, 21, 24], "zone": "circ", "items": [], "note": "", "to": ["Cellar spine", "Kitchen", "Servants' stairs"]}, {"id": "spine", "name": "Cellar spine", "r": [17, 24, 53, 26], "zone": "circ", "items": ["Iron wall lamps", "Outside storm doors at the west end"], "note": "", "to": ["Boiler room", "Cellar passage", "Coal store", "Cold store", "Dead-end passage", "Kitchen", "Laundry", "Old gun store", "Wine cellar"]}, {"id": "scul", "name": "Scullery", "r": [17, 10, 21, 14], "zone": "work", "items": ["Stone sink", "Wash tub"], "note": "", "to": ["Kitchen", "Servants' stairs"]}, {"id": "kitchen", "name": "Kitchen", "r": [21, 10, 33, 24], "zone": "work", "items": ["Cast-iron range", "Work table", "Dresser with plates and copper pans", "Dumbwaiter up to the butler's pantry", "Kitchen passage panel"], "note": "", "to": ["Cellar passage", "Cellar spine", "Cold store", "Pantry", "Scullery"]}, {"id": "pant", "name": "Pantry", "r": [33, 10, 37, 18], "zone": "work", "items": ["Shelves of jars, sacks and barrels"], "note": "", "to": ["Kitchen"]}, {"id": "cold", "name": "Cold store", "r": [33, 18, 37, 24], "zone": "work", "items": ["Icebox", "Meat hooks"], "note": "", "to": ["Cellar spine", "Kitchen"]}, {"id": "laundry", "name": "Laundry", "r": [37, 10, 45, 24], "zone": "work", "items": ["Mangle", "Wash tubs", "Drying racks"], "note": "", "to": ["Cellar spine"]}, {"id": "wine", "name": "Wine cellar", "r": [45, 10, 53, 24], "zone": "work", "items": ["Wine racks", "Barrels"], "note": "", "to": ["Cellar spine"]}, {"id": "coal", "name": "Coal store", "r": [17, 26, 23, 34], "zone": "work", "items": ["Coal heaped to the ceiling"], "note": "", "to": ["Cellar spine"]}, {"id": "boiler", "name": "Boiler room", "r": [23, 26, 33, 34], "zone": "work", "items": ["The boiler", "Gas valve cabinet: four valves, one per floor"], "note": "Where the gas is relit when a floor goes dark", "to": ["Cellar spine"]}, {"id": "dead", "name": "Dead-end passage", "r": [33, 26, 35, 34], "zone": "circ", "items": ["Ends at the Lord's iron door"], "note": "", "to": ["Cellar spine", "The Lord's room"]}, {"id": "lord", "name": "The Lord's room", "r": [35, 26, 43, 34], "zone": "lord", "items": ["Trophy case (1862 \u2013 1888)", "Hair cabinet, five locks", "Specimen cabinet", "Journal on the writing desk", "Blood-soaked chair", "Victim's black dress on a dress form", "His boots, gloves and handkerchief"], "note": "Locked. The key is in the globe in his study.", "to": ["Dead-end passage"]}, {"id": "armory", "name": "Old gun store", "r": [43, 26, 53, 34], "zone": "work", "items": ["AK wall-buy (only here)", "Thermal (only sold here)"], "note": "Buy point", "to": ["Cellar spine"]}], "doors": [{"o": "h", "x": 19.0, "y": 18, "a": "sstairs", "b": "cnorth", "kind": ""}, {"o": "h", "x": 19.0, "y": 14, "a": "sstairs", "b": "scul", "kind": ""}, {"o": "v", "x": 21, "y": 12.0, "a": "scul", "b": "kitchen", "kind": ""}, {"o": "v", "x": 21, "y": 21.0, "a": "cnorth", "b": "kitchen", "kind": ""}, {"o": "h", "x": 19.0, "y": 24, "a": "cnorth", "b": "spine", "kind": ""}, {"o": "h", "x": 27.0, "y": 24, "a": "kitchen", "b": "spine", "kind": ""}, {"o": "v", "x": 33, "y": 14.0, "a": "kitchen", "b": "pant", "kind": ""}, {"o": "v", "x": 33, "y": 21.0, "a": "kitchen", "b": "cold", "kind": ""}, {"o": "h", "x": 35.0, "y": 24, "a": "cold", "b": "spine", "kind": ""}, {"o": "h", "x": 41.0, "y": 24, "a": "laundry", "b": "spine", "kind": ""}, {"o": "h", "x": 49.0, "y": 24, "a": "wine", "b": "spine", "kind": ""}, {"o": "h", "x": 20.0, "y": 26, "a": "coal", "b": "spine", "kind": ""}, {"o": "h", "x": 28.0, "y": 26, "a": "boiler", "b": "spine", "kind": ""}, {"o": "h", "x": 34.0, "y": 26, "a": "dead", "b": "spine", "kind": ""}, {"o": "h", "x": 48.0, "y": 26, "a": "armory", "b": "spine", "kind": ""}, {"o": "v", "x": 35, "y": 31.2, "a": "lord", "b": "dead", "kind": "iron"}, {"o": "v", "x": 17, "y": 25, "a": "spine", "b": "outside", "kind": "ext", "label": "Storm doors to the side yard"}]}, "ground": {"name": "Ground floor", "rooms": [{"id": "hall", "name": "Entrance hall", "r": [29, 20, 40, 34], "zone": "ent", "items": ["Grand staircase", "Hall stand with mirror by the door", "The gas note on a side table inside the door", "Gas chandelier"], "note": "Players come in here from the drive", "to": ["Ballroom", "Butler's pantry", "Drawing room", "East corridor", "Ladies' retiring room", "Library"]}, {"id": "ballroom", "name": "Ballroom", "r": [29, 10, 40, 20], "zone": "ent", "items": ["Gilded pier mirrors along the walls", "Chairs around the edge", "Red velvet curtains", "Back passage panel in the corner"], "note": "", "to": ["Back passage", "Conservatory", "East corridor", "Entrance hall", "Service corridor"]}, {"id": "cons", "name": "Conservatory", "r": [31, 5, 38, 10], "zone": "ent", "items": ["Glass walls and roof", "Dead plants"], "note": "Glass annex off the ballroom", "to": ["Ballroom"]}, {"id": "drawing", "name": "Drawing room", "r": [17, 27, 29, 34], "zone": "ent", "items": ["Fireplace with the stormy landscape above it", "Piano", "Settee, armchairs, side tables", "Black damask curtains", "Left passage panel beside the fireplace"], "note": "The room in the Lord's portrait", "to": ["Dining room", "Entrance hall"]}, {"id": "dining", "name": "Dining room", "r": [17, 18, 26, 27], "zone": "ent", "items": ["Long table and chairs", "Sideboard", "Gas chandelier"], "note": "", "to": ["Butler's pantry", "Drawing room", "Service corridor"]}, {"id": "pantry", "name": "Butler's pantry", "r": [26, 21, 29, 27], "zone": "work", "items": ["Dumbwaiter down to the kitchen", "Plate cupboards"], "note": "", "to": ["Dining room", "Entrance hall", "Service corridor"]}, {"id": "svc", "name": "Service corridor", "r": [26, 14, 29, 21], "zone": "circ", "items": ["Kitchen passage panel"], "note": "Between the dining room and the ballroom", "to": ["Back passage", "Ballroom", "Butler's pantry", "Dining room"]}, {"id": "back", "name": "Back passage", "r": [17, 10, 29, 14], "zone": "circ", "items": ["Rear door to the walled garden"], "note": "Staff spawn side", "to": ["Ballroom", "Gun room", "Servants' stairs", "Service corridor"]}, {"id": "sstairs", "name": "Servants' stairs", "r": [17, 14, 21, 18], "zone": "circ", "items": ["Cellar to attic"], "note": "", "to": ["Back passage"]}, {"id": "gunroom", "name": "Gun room", "r": [21, 14, 26, 18], "zone": "work", "items": ["Wall-buy and crate"], "note": "Buy point", "to": ["Back passage"]}, {"id": "library", "name": "Library", "r": [40, 26, 53, 34], "zone": "ent", "items": ["Shelves floor to ceiling", "The suit of armor (Poltergeist)", "Leather chairs, library ladder", "Right passage panel behind a bookcase"], "note": "", "to": ["Entrance hall", "The Lord's study"]}, {"id": "retiring", "name": "Ladies' retiring room", "r": [40, 22, 44, 26], "zone": "wet", "items": ["Door hanging off its hinges", "Gilded mirror", "Dressing table, water closet"], "note": "You see the mirror from the hall every time you pass", "to": ["Entrance hall"]}, {"id": "eastc", "name": "East corridor", "r": [40, 16, 44, 22], "zone": "circ", "items": [], "note": "", "to": ["Ballroom", "Billiard room", "Entrance hall", "Gentlemen's cloakroom", "The Lord's study"]}, {"id": "study", "name": "The Lord's study", "r": [44, 18, 53, 26], "zone": "fam", "items": ["Desk with the bar globe (the key)", "Leather armchair", "Bookcases", "Black damask curtains"], "note": "The globe is the only furniture that offers \"Use\"", "to": ["East corridor", "Library"]}, {"id": "billiard", "name": "Billiard room", "r": [44, 10, 53, 18], "zone": "ent", "items": ["Billiard table", "Cue rack", "Taxidermy"], "note": "", "to": ["East corridor"]}, {"id": "cloak", "name": "Gentlemen's cloakroom", "r": [40, 10, 44, 16], "zone": "wet", "items": ["Oval mirror", "High-cistern toilet", "Coat pegs"], "note": "", "to": ["East corridor"]}], "doors": [{"o": "h", "x": 30.54, "y": 20, "a": "hall", "b": "ballroom", "kind": ""}, {"o": "h", "x": 38.46, "y": 20, "a": "hall", "b": "ballroom", "kind": ""}, {"o": "v", "x": 29, "y": 30.5, "a": "hall", "b": "drawing", "kind": ""}, {"o": "v", "x": 29, "y": 24.0, "a": "hall", "b": "pantry", "kind": ""}, {"o": "v", "x": 40, "y": 24.0, "a": "hall", "b": "retiring", "kind": ""}, {"o": "v", "x": 40, "y": 30.0, "a": "hall", "b": "library", "kind": ""}, {"o": "v", "x": 40, "y": 21.0, "a": "hall", "b": "eastc", "kind": ""}, {"o": "h", "x": 34.5, "y": 10, "a": "ballroom", "b": "cons", "kind": ""}, {"o": "v", "x": 29, "y": 17.0, "a": "ballroom", "b": "svc", "kind": ""}, {"o": "v", "x": 29, "y": 12.0, "a": "ballroom", "b": "back", "kind": ""}, {"o": "v", "x": 40, "y": 18.0, "a": "ballroom", "b": "eastc", "kind": ""}, {"o": "h", "x": 21.5, "y": 27, "a": "dining", "b": "drawing", "kind": ""}, {"o": "v", "x": 26, "y": 24.0, "a": "dining", "b": "pantry", "kind": ""}, {"o": "v", "x": 26, "y": 19.5, "a": "dining", "b": "svc", "kind": ""}, {"o": "h", "x": 27.5, "y": 14, "a": "svc", "b": "back", "kind": ""}, {"o": "h", "x": 27.5, "y": 21, "a": "svc", "b": "pantry", "kind": ""}, {"o": "h", "x": 19.0, "y": 14, "a": "back", "b": "sstairs", "kind": ""}, {"o": "h", "x": 23.5, "y": 14, "a": "back", "b": "gunroom", "kind": ""}, {"o": "h", "x": 42.0, "y": 16, "a": "eastc", "b": "cloak", "kind": ""}, {"o": "v", "x": 44, "y": 20.0, "a": "eastc", "b": "study", "kind": ""}, {"o": "v", "x": 44, "y": 17.0, "a": "eastc", "b": "billiard", "kind": ""}, {"o": "h", "x": 48.5, "y": 26, "a": "study", "b": "library", "kind": ""}, {"o": "h", "x": 34.5, "y": 34, "a": "hall", "b": "outside", "kind": "ext", "label": "Front double doors (porch)"}, {"o": "h", "x": 23, "y": 10, "a": "back", "b": "outside", "kind": "ext", "label": "Rear door (kitchen garden)"}]}, "upper": {"name": "Upper floor", "rooms": [{"id": "sstairs", "name": "Servants' stairs", "r": [17, 14, 21, 18], "zone": "circ", "items": ["Opens only into the master closet on this floor"], "note": "", "to": ["Walk-in closet"]}, {"id": "closet", "name": "Walk-in closet", "r": [21, 14, 25, 18], "zone": "fam", "items": ["Hub of the master suite", "Hidden staff door to the servants' stairs (always open, both ways)"], "note": "", "to": ["Her dressing room", "His dressing room", "Master bathroom", "Master bedroom", "Servants' stairs"]}, {"id": "her", "name": "Her dressing room", "r": [17, 10, 23, 14], "zone": "fam", "items": ["Vanity with the arched mirror"], "note": "", "to": ["Walk-in closet"]}, {"id": "his", "name": "His dressing room", "r": [23, 10, 29, 14], "zone": "fam", "items": ["Shaving washstand with mirror", "Wardrobe"], "note": "", "to": ["Walk-in closet"]}, {"id": "mbath", "name": "Master bathroom", "r": [25, 14, 29, 18], "zone": "wet", "items": ["Bath vanity with mirror", "Clawfoot tub"], "note": "", "to": ["Walk-in closet"]}, {"id": "mbed", "name": "Master bedroom", "r": [17, 18, 29, 26], "zone": "fam", "items": ["Four-poster bed", "Nightstands, wardrobe", "Chest of drawers with mirror", "Portrait of the Lord and his wife"], "note": "", "to": ["Gallery hallway", "Walk-in closet"]}, {"id": "leftc", "name": "Children's corridor", "r": [23, 26, 29, 28], "zone": "circ", "items": [], "note": "", "to": ["Boy's room", "Gallery hallway", "Girls' room"]}, {"id": "girls", "name": "Girls' room", "r": [17, 26, 23, 34], "zone": "fam", "items": ["Two brass beds", "The dollhouse", "Lace curtains", "Portrait of the three children", "Left passage panel"], "note": "", "to": ["Children's bathroom", "Children's corridor"]}, {"id": "kbath", "name": "Children's bathroom", "r": [23, 28, 25, 34], "zone": "wet", "items": ["Washstand with mirror"], "note": "No hall door: only through the girls' or the boy's room", "to": ["Boy's room", "Girls' room"]}, {"id": "boy", "name": "Boy's room", "r": [25, 28, 29, 34], "zone": "fam", "items": ["Brass bed", "Rocking horse", "Toy chest", "Front passage panel"], "note": "", "to": ["Children's bathroom", "Children's corridor"]}, {"id": "famb", "name": "Family bathroom", "r": [29, 10, 33, 18], "zone": "wet", "items": ["Clawfoot tub", "Bath vanity with mirror", "Pull-chain toilet"], "note": "", "to": ["Gallery hallway"]}, {"id": "sewing", "name": "Sewing room", "r": [33, 10, 36, 18], "zone": "fam", "items": ["Linen and sewing"], "note": "", "to": ["Gallery hallway"]}, {"id": "gov", "name": "Governess's room", "r": [36, 10, 40, 18], "zone": "fam", "items": ["Bed, washstand", "Back passage panel"], "note": "", "to": ["Gallery hallway"]}, {"id": "hallway", "name": "Gallery hallway", "r": [29, 18, 40, 34], "zone": "circ", "items": ["Grand staircase arrives here", "The Lord's portrait on the landing (coin flip)", "Portrait gallery along the walls", "Kitchen passage false wall", "Wall-buy on the gallery wall"], "note": "Buy point", "to": ["Children's corridor", "Family bathroom", "Front balcony", "Governess's room", "Guest corridor", "Master bedroom", "Sewing room"]}, {"id": "eastc", "name": "Guest corridor", "r": [40, 21, 53, 23], "zone": "circ", "items": [], "note": "", "to": ["Gallery hallway", "Guest room 1", "Guest room 2", "Guest room 3", "Guest room 4", "Linen cupboard", "Linen cupboard"]}, {"id": "g1", "name": "Guest room 1", "r": [40, 10, 46, 21], "zone": "fam", "items": ["Brass bed, wardrobe"], "note": "", "to": ["Guest bathroom A", "Guest corridor"]}, {"id": "bathA", "name": "Guest bathroom A", "r": [46, 10, 48, 19], "zone": "wet", "items": ["Washstand with mirror"], "note": "No hall door: guest rooms 1 and 2 only", "to": ["Guest room 1", "Guest room 2"]}, {"id": "lin1", "name": "Linen cupboard", "r": [46, 19, 48, 21], "zone": "work", "items": [], "note": "", "to": ["Guest corridor"]}, {"id": "g2", "name": "Guest room 2", "r": [48, 10, 53, 21], "zone": "fam", "items": ["Brass bed, chest with mirror"], "note": "", "to": ["Guest bathroom A", "Guest corridor"]}, {"id": "g3", "name": "Guest room 3", "r": [40, 23, 46, 34], "zone": "fam", "items": ["Brass bed, wardrobe"], "note": "", "to": ["Guest bathroom B", "Guest corridor"]}, {"id": "lin2", "name": "Linen cupboard", "r": [46, 23, 48, 25], "zone": "work", "items": [], "note": "", "to": ["Guest corridor"]}, {"id": "bathB", "name": "Guest bathroom B", "r": [46, 25, 48, 34], "zone": "wet", "items": ["Washstand with mirror"], "note": "No hall door: guest rooms 3 and 4 only", "to": ["Guest room 3", "Guest room 4"]}, {"id": "g4", "name": "Guest room 4", "r": [48, 23, 53, 34], "zone": "fam", "items": ["Brass bed, chest with mirror", "Right passage panel"], "note": "", "to": ["Guest bathroom B", "Guest corridor"]}, {"id": "balcony", "name": "Front balcony", "r": [31, 34, 38, 37], "zone": "circ", "items": ["On top of the porch roof", "Players can walk out and jump down to the drive", "Zombies can't climb up"], "note": "A brute pounding the porch pillars brings it down and buries the front doors. 10 seconds of pounding in total; two brutes take 5.", "to": ["Gallery hallway"]}], "doors": [{"o": "v", "x": 29, "y": 22.0, "a": "hallway", "b": "mbed", "kind": ""}, {"o": "h", "x": 23.0, "y": 18, "a": "mbed", "b": "closet", "kind": ""}, {"o": "h", "x": 22.0, "y": 14, "a": "closet", "b": "her", "kind": ""}, {"o": "h", "x": 24.0, "y": 14, "a": "closet", "b": "his", "kind": ""}, {"o": "v", "x": 25, "y": 16.0, "a": "closet", "b": "mbath", "kind": ""}, {"o": "v", "x": 21, "y": 16.0, "a": "closet", "b": "sstairs", "kind": "staff"}, {"o": "v", "x": 29, "y": 27.0, "a": "hallway", "b": "leftc", "kind": ""}, {"o": "v", "x": 23, "y": 27.0, "a": "leftc", "b": "girls", "kind": ""}, {"o": "h", "x": 27.0, "y": 28, "a": "leftc", "b": "boy", "kind": ""}, {"o": "v", "x": 23, "y": 31.0, "a": "girls", "b": "kbath", "kind": ""}, {"o": "v", "x": 25, "y": 31.0, "a": "boy", "b": "kbath", "kind": ""}, {"o": "h", "x": 34.5, "y": 34, "a": "hallway", "b": "balcony", "kind": "french"}, {"o": "h", "x": 31.0, "y": 18, "a": "hallway", "b": "famb", "kind": ""}, {"o": "h", "x": 34.5, "y": 18, "a": "hallway", "b": "sewing", "kind": ""}, {"o": "h", "x": 38.0, "y": 18, "a": "hallway", "b": "gov", "kind": ""}, {"o": "v", "x": 40, "y": 22.0, "a": "hallway", "b": "eastc", "kind": ""}, {"o": "h", "x": 43.0, "y": 21, "a": "eastc", "b": "g1", "kind": ""}, {"o": "h", "x": 50.5, "y": 21, "a": "eastc", "b": "g2", "kind": ""}, {"o": "h", "x": 47.0, "y": 21, "a": "eastc", "b": "lin1", "kind": ""}, {"o": "v", "x": 46, "y": 14.5, "a": "g1", "b": "bathA", "kind": ""}, {"o": "v", "x": 48, "y": 14.5, "a": "g2", "b": "bathA", "kind": ""}, {"o": "h", "x": 43.0, "y": 23, "a": "eastc", "b": "g3", "kind": ""}, {"o": "h", "x": 50.5, "y": 23, "a": "eastc", "b": "g4", "kind": ""}, {"o": "h", "x": 47.0, "y": 23, "a": "eastc", "b": "lin2", "kind": ""}, {"o": "v", "x": 46, "y": 29.5, "a": "g3", "b": "bathB", "kind": ""}, {"o": "v", "x": 48, "y": 29.5, "a": "g4", "b": "bathB", "kind": ""}]}, "attic": {"name": "Attic", "rooms": [{"id": "sstairs", "name": "Servants' stairs", "r": [17, 14, 21, 18], "zone": "circ", "items": ["Top of the servants' stairs"], "note": "", "to": ["Stair landing", "Storeroom"]}, {"id": "land", "name": "Stair landing", "r": [17, 18, 21, 20], "zone": "circ", "items": [], "note": "", "to": ["Attic corridor", "Servants' stairs"]}, {"id": "spine", "name": "Attic corridor", "r": [17, 20, 53, 22], "zone": "circ", "items": ["Full height under the mansard roof"], "note": "", "to": ["Box room", "Cupboard", "Cupboard", "Cupboard", "Housekeeper's room", "Servant's room 1", "Servant's room 2", "Servant's room 3", "Servant's room 4", "Servant's room 5", "Servant's room 6", "Servants' hall", "Stair landing", "Trunk room"]}, {"id": "store", "name": "Storeroom", "r": [17, 10, 21, 14], "zone": "work", "items": [], "note": "", "to": ["Servants' stairs"]}, {"id": "hk", "name": "Housekeeper's room", "r": [21, 10, 25, 20], "zone": "staff", "items": ["Desk with ledgers and the ring of keys", "Armchair", "Wall-buy and crate"], "note": "Buy point", "to": ["Attic corridor"]}, {"id": "shall", "name": "Servants' hall", "r": [25, 10, 35, 20], "zone": "staff", "items": ["Long table and benches", "The bell board", "Dresser, clock, heating stove", "Kitchen passage panel"], "note": "Bells ring for empty rooms", "to": ["Attic corridor"]}, {"id": "trunk", "name": "Trunk room", "r": [35, 10, 41, 20], "zone": "staff", "items": ["Trunks and cases", "Back passage panel"], "note": "", "to": ["Attic corridor"]}, {"id": "s1", "name": "Servant's room 1", "r": [41, 10, 45, 20], "zone": "staff", "items": ["Plain bed, nightstand, drawers", "Dormer window"], "note": "", "to": ["Attic corridor", "Washroom A"]}, {"id": "washA", "name": "Washroom A", "r": [45, 10, 47, 18], "zone": "wet", "items": ["Wall mirror, washstand"], "note": "No hall door: rooms 1 and 2 only", "to": ["Servant's room 1", "Servant's room 2"]}, {"id": "cup1", "name": "Cupboard", "r": [45, 18, 47, 20], "zone": "work", "items": [], "note": "", "to": ["Attic corridor"]}, {"id": "s2", "name": "Servant's room 2", "r": [47, 10, 53, 20], "zone": "staff", "items": ["Plain bed, dressing table with mirror", "Dormer window"], "note": "", "to": ["Attic corridor", "Washroom A"]}, {"id": "s3", "name": "Servant's room 3", "r": [17, 22, 22, 34], "zone": "staff", "items": ["Plain bed, wardrobe", "Dormer window", "Left passage panel"], "note": "", "to": ["Attic corridor", "Washroom B"]}, {"id": "cup2", "name": "Cupboard", "r": [22, 22, 24, 24], "zone": "work", "items": [], "note": "", "to": ["Attic corridor"]}, {"id": "washB", "name": "Washroom B", "r": [22, 24, 24, 34], "zone": "wet", "items": ["Tin tub", "Wall mirror"], "note": "No hall door: rooms 3 and 4 only", "to": ["Servant's room 3", "Servant's room 4"]}, {"id": "s4", "name": "Servant's room 4", "r": [24, 22, 29, 34], "zone": "staff", "items": ["Plain bed, dressing table with mirror", "Dormer window", "Front passage panel"], "note": "", "to": ["Attic corridor", "Washroom B"]}, {"id": "s5", "name": "Servant's room 5", "r": [29, 22, 34, 34], "zone": "staff", "items": ["Plain bed, side table", "Dormer window"], "note": "", "to": ["Attic corridor", "Washroom C"]}, {"id": "cup3", "name": "Cupboard", "r": [34, 22, 36, 24], "zone": "work", "items": [], "note": "", "to": ["Attic corridor"]}, {"id": "washC", "name": "Washroom C", "r": [34, 24, 36, 34], "zone": "wet", "items": ["Washstand with jug and basin, wall mirror"], "note": "No hall door: rooms 5 and 6 only", "to": ["Servant's room 5", "Servant's room 6"]}, {"id": "s6", "name": "Servant's room 6", "r": [36, 22, 41, 34], "zone": "staff", "items": ["Plain bed, wardrobe", "Dormer window"], "note": "", "to": ["Attic corridor", "Washroom C"]}, {"id": "box", "name": "Box room", "r": [41, 22, 53, 34], "zone": "staff", "items": ["Furniture under dust sheets", "Covered mirrors", "Right passage panel"], "note": "", "to": ["Attic corridor"]}], "doors": [{"o": "h", "x": 19.0, "y": 18, "a": "sstairs", "b": "land", "kind": ""}, {"o": "h", "x": 19.0, "y": 20, "a": "land", "b": "spine", "kind": ""}, {"o": "h", "x": 19.0, "y": 14, "a": "sstairs", "b": "store", "kind": ""}, {"o": "h", "x": 23.0, "y": 20, "a": "hk", "b": "spine", "kind": ""}, {"o": "h", "x": 30.0, "y": 20, "a": "shall", "b": "spine", "kind": ""}, {"o": "h", "x": 38.0, "y": 20, "a": "trunk", "b": "spine", "kind": ""}, {"o": "h", "x": 43.0, "y": 20, "a": "s1", "b": "spine", "kind": ""}, {"o": "h", "x": 46.0, "y": 20, "a": "cup1", "b": "spine", "kind": ""}, {"o": "h", "x": 50.0, "y": 20, "a": "s2", "b": "spine", "kind": ""}, {"o": "v", "x": 45, "y": 14.0, "a": "s1", "b": "washA", "kind": ""}, {"o": "v", "x": 47, "y": 14.0, "a": "s2", "b": "washA", "kind": ""}, {"o": "h", "x": 19.5, "y": 22, "a": "s3", "b": "spine", "kind": ""}, {"o": "h", "x": 23.0, "y": 22, "a": "cup2", "b": "spine", "kind": ""}, {"o": "h", "x": 26.5, "y": 22, "a": "s4", "b": "spine", "kind": ""}, {"o": "v", "x": 22, "y": 29.0, "a": "s3", "b": "washB", "kind": ""}, {"o": "v", "x": 24, "y": 29.0, "a": "s4", "b": "washB", "kind": ""}, {"o": "h", "x": 31.5, "y": 22, "a": "s5", "b": "spine", "kind": ""}, {"o": "h", "x": 35.0, "y": 22, "a": "cup3", "b": "spine", "kind": ""}, {"o": "h", "x": 38.5, "y": 22, "a": "s6", "b": "spine", "kind": ""}, {"o": "v", "x": 34, "y": 29.0, "a": "s5", "b": "washC", "kind": ""}, {"o": "v", "x": 36, "y": 29.0, "a": "s6", "b": "washC", "kind": ""}, {"o": "h", "x": 47.0, "y": 22, "a": "box", "b": "spine", "kind": ""}]}}, "passages": [{"k": "K", "name": "Kitchen passage", "x": 29, "y": 18.5, "exits": {"cellar": "kitchen", "ground": "svc", "upper": "hallway", "attic": "shall"}, "note": "The only passage that reaches the cellar. The upper panel is a false wall in the gallery hallway."}, {"k": "F", "name": "Front passage", "x": 29, "y": 30.5, "exits": {"ground": "hall", "upper": "boy", "attic": "s4"}, "note": ""}, {"k": "B", "name": "Back passage", "x": 37, "y": 12.5, "exits": {"ground": "ballroom", "upper": "gov", "attic": "trunk"}, "note": ""}, {"k": "L", "name": "Left passage", "x": 17.5, "y": 30, "exits": {"ground": "drawing", "upper": "girls", "attic": "s3"}, "note": "Comes out among the dolls in the girls' room."}, {"k": "R", "name": "Right passage", "x": 52.5, "y": 30, "exits": {"ground": "library", "upper": "g4", "attic": "box"}, "note": ""}], "order": ["grounds", "cellar", "ground", "upper", "attic"], "doll": {"ground": ["hall", "ballroom", "cons", "drawing", "dining", "library", "retiring"], "upper": ["mbed", "closet", "her", "his", "mbath", "girls", "boy", "kbath", "famb", "sewing", "gov", "hallway"]}, "mirrors": {"ground": ["hall", "ballroom", "retiring", "cloak"], "upper": ["her", "his", "mbath", "mbed", "kbath", "famb", "bathA", "bathB", "g2", "g4", "hallway"], "attic": ["s2", "s4", "washA", "washB", "washC", "box"], "cellar": []}, "buy": {"cellar": "armory", "ground": "gunroom", "upper": "hallway", "attic": "hk"}};
+const O=4,FL=['cellar','ground','upper','attic'],HX0=PLAN.house[0]+O,HZ0=PLAN.house[1]+O,HX1=PLAN.house[2]+O,HZ1=PLAN.house[3]+O;
+const LVY=[-3.2,0,3.2,6.4],ROOF=9.6;
+const M={on:false,preview:location.hash==='#mansion',HX0,HZ0,HX1,HZ1,LVY,rooms:[],lights:[]};
+const inHouse=(x,z)=>x>=HX0&&x<HX1&&z>=HZ0&&z<HZ1;
+
+function grid(){
+  const L=[0,1,2,3].map(k=>({y:LVY[k],top:k===3?ROOF:LVY[k+1],solid:new Uint8Array(N),kind:new Uint8Array(N),floor:k===0?null:new Uint8Array(N),headroom:.35}));
+  const wall=(k,x,z,kind)=>{const i=idx(x,z);L[k].solid[i]=1;L[k].kind[i]=kind||K.WALL;},open=(k,x,z)=>{const i=idx(x,z);L[k].solid[i]=0;L[k].kind[i]=0;};
+  // the cellar is dug into the earth: solid all round the house
+  for(let x=0;x<MW;x++)for(let z=0;z<MD;z++)if(!inHouse(x,z))wall(0,x,z);
+  // floors: earth out in the grounds, a floor slab inside the house on every level above the cellar
+  for(let x=0;x<MW;x++)for(let z=0;z<MD;z++){const i=idx(x,z);L[1].floor[i]=inHouse(x,z)?1:2;if(inHouse(x,z))L[2].floor[i]=L[3].floor[i]=1;}
+  // rooms
+  M.rooms=[];
+  FL.forEach((f,k)=>{for(const r of PLAN.floors[f].rooms){const [a,b,c,d]=r.r,X0=a+O,Z0=b+O,X1=c+O,Z1=d+O;M.rooms.push({k,id:r.id,name:r.name,zone:r.zone,X0,Z0,X1,Z1});
+    if(r.id==='balcony'){for(let x=X0;x<X1;x++)for(let z=Z0;z<Z1;z++)L[2].floor[idx(x,z)]=1;continue;}
+    for(let z=Z0;z<Z1;z++)wall(k,X0,z);for(let x=X0;x<X1;x++)wall(k,x,Z0);
+    if(r.id==='cons'){for(let z=Z0;z<Z1;z++)wall(k,X1-1,z,K.RAIL+8);for(let x=X0;x<X1;x++)wall(k,x,Z0,K.RAIL+8);for(let z=Z0;z<Z1;z++)wall(k,X0,z,K.RAIL+8);}}
+    for(let x=HX0;x<HX1;x++)wall(k,x,HZ1-1);for(let z=HZ0;z<HZ1;z++)wall(k,HX1-1,z);});
+  // doors (the servants' stairwell's are placed by hand so they meet its three flights)
+  const SS={'0:sstairs:cnorth':[22,22],'0:sstairs:scul':[23,18],'1:back:sstairs':[23,18],'2:closet:sstairs':[25,21],'3:sstairs:land':[24,22],'3:sstairs:store':[23,18]};
+  M.doorCells=[];
+  FL.forEach((f,k)=>{for(const d of PLAN.floors[f].doors){
+    if(d.kind==='iron')continue; // the Lord's door stays shut: it gets its lock and key later
+    const rec={k,kind:d.kind,a:d.a,b:d.b,cells:[]};M.doorCells.push(rec);
+    const hand=SS[k+':'+d.a+':'+d.b];if(hand){open(k,hand[0],hand[1]);rec.cells.push([hand[0],hand[1]]);continue;}
+    let x=d.x+O,z=d.y+O;
+    if(d.o==='h'){if(z===HZ1)z=HZ1-1;const w=(d.kind==='ext'&&d.a==='hall')||d.kind==='french'?2:1;for(let j=0;j<w;j++){open(k,Math.floor(x)+j,z);rec.cells.push([Math.floor(x)+j,z]);}}
+    else{if(x===HX1)x=HX1-1;open(k,x,Math.floor(z));rec.cells.push([x,Math.floor(z)]);}}});
+  // the storm doors: one wide, down from the side yard
+  open(0,HX0,29);
+  // the grand staircase: hall to the upper gallery, five wide, rising toward the back
+  const stairZ=(xs,z0,z1,rise,base)=>{for(const x of xs)for(let z=z0;z<=z1;z++){const i=idx(x,z);stA[i]=1;stBase[i]=base;stLen[i]=z1-z0+1;
+      if(rise==='n'){stStart[i]=z1+1;stSign[i]=-1;}else{stStart[i]=z0;stSign[i]=1;}if(L[base+1].floor)L[base+1].floor[i]=0;L[base].solid[i]=0;}};
+  stairZ([36,37,38,39,40],25,29,'n',1);
+  for(let z=25;z<=30;z++){wall(2,35,z,K.RAIL);wall(2,41,z,K.RAIL);}for(let x=36;x<=40;x++)wall(2,x,30,K.RAIL);
+  // the servants' stairs: three steep flights side by side
+  stairZ([22],19,21,'n',0);stairZ([24],19,21,'s',1);stairZ([23],19,21,'n',2);
+  for(let z=19;z<=21;z++){stLen[idx(24,z)]=2.45;stStart[idx(24,z)]=19.2;} // the middle flight tops out half a metre early, level with the closet's staff door
+  // storm-door steps outside the west wall, rising away from the house
+  for(let x=18;x<=20;x++){const i=idx(x,29);stA[i]=2;stBase[i]=0;stLen[i]=3;stStart[i]=21;stSign[i]=-1;L[1].floor[i]=0;L[0].solid[i]=0;}
+  for(const x of [18,19,20])for(const z of [28,30])wall(1,x,z,K.RAIL);
+  // the balcony's railing, with a gap at the front to drop through; the porch pillars under it
+  for(let z=38;z<=40;z++){wall(2,35,z,K.RAIL);wall(2,41,z,K.RAIL);}for(const x of [36,40])wall(2,x,40,K.RAIL);
+  for(const x of [35,36,40,41])wall(1,x,40,K.POST);
+  // dead trees out in the grounds
+  for(const [x,z] of [[6,4],[64,5],[8,46],[62,45],[10,33],[58,20],[24,44],[46,46]])wall(1,x+O,z+O,K.TREE);
+  for(let x=37;x<=39;x++)for(let z=46;z<=47;z++)wall(1,x,z,K.TREE); // the dry fountain in the turning circle
+  // how the levels connect, for the horde's pathfinding: [cell, level] to [cell, level]
+  const lk=[];for(let x=36;x<=40;x++)lk.push([[x,25,1],[x,24,2]]);
+  lk.push([[22,19,0],[23,19,1]],[[24,21,1],[25,21,2]],[[24,21,1],[23,21,2]],[[23,19,2],[23,18,3]],[[23,19,2],[24,19,3]],[[18,29,0],[17,29,1]]);
+  return {L,lk};
+}
+
+// ---- the swap: the cul-de-sac's grid and world go, the mansion's come in
+function swap(){
+  if(M.on)return;M.on=true;
+  for(const a of [solid0,kind0,solid1,kind1,floor1,bld])a.fill(0);
+  stA.fill(-1);doorCell.fill(-1);winCell.fill(-1);
+  const G=grid();
+  for(let k=0;k<4;k++)LEVELS[k]=G.L[k];
+  for(let x=HX0;x<HX1;x++)for(let z=HZ0;z<HZ1;z++)bld[idx(x,z)]=1;
+  for(let x=35;x<42;x++)for(let z=9;z<14;z++)bld[idx(x,z)]=1; // the conservatory is indoors too
+  links.fill(-1);links2.fill(-1);for(const [[ax,az,al],[bx,bz,bl]] of G.lk)addLink(idx(ax,az)+al*N,idx(bx,bz)+bl*N);
+  roofAt=i=>bld[i]?ROOF:0;
+  for(const A of [PORCH,DOORS,DOORSTATE,WINDOWS,WINSTATE,JUMP_WIN,PROPS,PROPSTATE,INTER,SPAWNS])A.length=0;
+  Object.assign(BND,{x0:O,z0:O,x1:70+O,z1:50+O});
+  for(let x=1;x<MW-1;x++)for(let z=1;z<MD-1;z++){if(x>=BND.x0-1&&x<BND.x1+1&&z>=BND.z0-1&&z<BND.z1+1)continue;if(!LEVELS[1].solid[idx(x,z)])SPAWNS.push([x+.5,z+.5]);}
+  SPAWN_PTS.splice(0,SPAWN_PTS.length,[37.5,50.5],[40.5,50.5],[37.5,52],[40.5,52]);
+  clearCuldesac();M.occ=[{k:2,a:[36.3,23,37.7,23.5]},{k:1,a:[35.9,36.5,36.9,37]},{k:0,a:[28.5,36.3,33.2,37]}];M.frames=[];M.wins=winList(G.L);M.leaves=doorLeaves(G.L);build(G);dressOpenings(G.L);placeFurniture();flushCards();
+}
+// everything the cul-de-sac put in the world. Kept: the sky, rain, the moon and stars, pooled effects (hidden at load) and lights that start off
+function clearCuldesac(){M.culObjs=[];
+  const keep=new Set([LOOK.dome,LOOK.rain&&LOOK.rain.m,moon,camera]);
+  for(const o of scene.children.slice()){
+    if(keep.has(o))continue;
+    if(o.isLight){if(o.isDirectionalLight||o.isHemisphereLight||o.isAmbientLight||o.intensity===0)continue;scene.remove(o);continue;}
+    if(o.isPoints&&o.material===starMat)continue;
+    if(o.visible===false)continue;
+    scene.remove(o);M.removed=(M.removed||0)+1;M.culObjs.push(o);}
+}
+
+// ---- the art: loaded from mansion_art/ beside the page, only when the mansion is played
+// (if the pictures were put loose beside the page instead of in the folder, they're found there too)
+let ART='mansion_art/';const TX={};
+function mtex(n,o){o=o||{};const k=n+(o.clamp?'c':'');if(TX[k])return TX[k];
+  const alt=ART?'':'mansion_art/',t=new THREE.TextureLoader().load(ART+n+'.webp',undefined,undefined,()=>{
+    new THREE.ImageLoader().load(alt+n+'.webp',img=>{t.image=img;t.needsUpdate=true;ART=alt;});});t.anisotropy=4;
+  if(!o.clamp){t.wrapS=t.wrapT=THREE.RepeatWrapping;}return TX[k]=t;}
+const MAT={};
+function mmat(n,tint,o){o=o||{};const k=n+'|'+(tint||0xffffff)+'|'+(o.alpha?1:0)+(o.side||'');if(MAT[k])return MAT[k];
+  const m=new THREE.MeshLambertMaterial({map:mtex(n,o),color:tint||0xffffff});if(o.alpha){m.alphaTest=.5;m.transparent=false;}if(o.side)m.side=THREE.DoubleSide;return MAT[k]=m;}
+// which paper, floor and ceiling each room gets: [texture, metres per tile, tint]
+function wallOf(r){if(!r)return ['wall_plaster',2.5,0x8a8478];const k=r.k,z=r.zone,id=r.id;
+  if(k===0)return id==='lord'?['wall_plaster',2.5,0x6a4a40]:['wall_plaster',2.5,0x6d675d];
+  if(k===3)return z==='wet'?['wall_plaster',2.5,0xb0aca2]:['wall_plaster',2.5,0x9d968a];
+  if(k===1){if(id==='retiring')return ['wall_floral',1.6,0xd8cfc4];if(z==='ent'||id==='study'||id==='cloak')return ['wall_damask_red',1.6,id==='cloak'?0x806a60:0x9a7268];return ['wall_plaster',2.5,0x8c8274];}
+  if(z==='circ')return id==='hallway'?['wall_damask_red',1.6,0x8e6c64]:['wall_plaster',2.5,0x958b7d];
+  if(z==='wet'||z==='work')return ['wall_plaster',2.5,0xa8a298];
+  return ['wall_floral',1.6,0xe6ddd2];}
+function floorOf(r){if(!r)return ['floor_boards',2,0x8a7a68];const k=r.k,id=r.id;
+  if(k===0)return ['floor_flagstone',2.5,id==='lord'?0x7a6a62:0x8a857c];
+  if(k===1)return ['hall','ballroom','drawing','dining','library','study','retiring'].includes(id)?['floor_parquet',1.5,0xd8c8b8]:['floor_boards',2,0x9a8a76];
+  if(k===3)return ['floor_boards',2,0xb8a890];
+  return r.zone==='wet'?['floor_flagstone',1.6,0xb0aaa0]:['floor_boards',2,0x9a8670];}
+function ceilOf(r){if(!r||r.k===0)return ['floor_boards',2,0x5a5046];return r.k===3?['wall_plaster',2.5,0xa09a90]:['ceiling_plaster',2.2,0xd8d2c6];}
+
+function build(G){
+  const L=G.L,F={},trim=[],steps=[],panes=[];
+  const roomAt=(k,x,z)=>M.rooms.find(r=>r.k===k&&x>=r.X0&&x<r.X1&&z>=r.Z0&&z<r.Z1);
+  // faces grouped by look; one mesh per look
+  const face=(key,p,n,uv)=>{const f=F[key]||(F[key]={p:[],n:[],u:[]});for(const i of [0,1,2,0,2,3]){f.p.push(...p[i]);f.n.push(...n);f.u.push(...uv[i]);}};
+  const quadV=(key,S,ax,c,lo,hi,y0,y1,dir)=>{ // a vertical wall face: on the plane ax=c, spanning lo..hi along the other axis, facing dir (+1/-1)
+    let P,U,N;if(ax==='x'){P=[[c,y0,lo],[c,y0,hi],[c,y1,hi],[c,y1,lo]];N=[dir,0,0];}else{P=[[lo,y0,c],[hi,y0,c],[hi,y1,c],[lo,y1,c]];N=[0,0,dir];}
+    U=[[lo/S,y0/S],[hi/S,y0/S],[hi/S,y1/S],[lo/S,y1/S]];if((ax==='x')===(dir>0)){P=[P[1],P[0],P[3],P[2]];U=[U[1],U[0],U[3],U[2]];}face(key,P,N,U);};
+  const quadH=(key,S,x0,z0,x1,z1,y,up)=>{let P=[[x0,y,z0],[x0,y,z1],[x1,y,z1],[x1,y,z0]],U=P.map(q=>[q[0]/S,q[2]/S]);if(!up){P=[P[0],P[3],P[2],P[1]];U=[U[0],U[3],U[2],U[1]];}face(key,P,[0,up?1:-1,0],U);};
+  const K_=(t)=>t[0]+'|'+t[1]+'|'+t[2];
+  const isWall=(k,x,z)=>{if(!inWorld(x,z))return false;const i=idx(x,z),kd=L[k].kind[i];return L[k].solid[i]&&(kd===K.WALL)&&(inHouse(x,z)||!!roomAt(k,x,z));};
+  for(let k=0;k<4;k++){const lv=L[k],y0=lv.y,y1=lv.top;
+    for(let x=0;x<MW;x++)for(let z=0;z<MD;z++){const i=idx(x,z);
+      if(isWall(k,x,z)){
+        for(const [dx,dz,ax,c,dir] of [[1,0,'x',x+1,1],[-1,0,'x',x,-1],[0,1,'z',z+1,1],[0,-1,'z',z,-1]]){
+          const nx=x+dx,nz=z+dz;if(isWall(k,nx,nz))continue;
+          const lo=ax==='x'?z:x,hi=lo+1,inside=inHouse(nx,nz)||(k===1&&nx>=35&&nx<42&&nz>=9&&nz<14);
+          if(!inside){if(k===0)continue;const t=k===3?['roof_slate_fishscale',1.2,0x9a9ea6]:['ext_clapboard_white',1.4,0xd6d2c8];quadV('X'+K_(t),t[1],ax,c,lo,hi,y0,y1,dir);continue;}
+          const r=roomAt(k,nx,nz)||roomAt(k,x,z),t=wallOf(r);quadV(K_(t),t[1],ax,c,lo,hi,y0,y1,dir);}
+        continue;}
+      const kd=lv.kind[i];
+      if(lv.solid[i]&&kd===K.RAIL&&(inHouse(x,z)||roomAt(k,x,z))){const isR=(a,b)=>inWorld(a,b)&&lv.solid[idx(a,b)]&&lv.kind[idx(a,b)]===K.RAIL,stone=!inHouse(x,z);
+        const ax=isR(x-1,z)||isR(x+1,z),az=isR(x,z-1)||isR(x,z+1),cr=stone?0x8f8a7e:0x3a2414,cb=stone?0x9a958a:0x4a2e1a,bw=stone?.09:.045;
+        for(const al of (ax||!az?['x']:[]).concat(az?['z']:[])){const X=al==='x';
+          trim.push([x+.5,y0+.97,z+.5,X?1:.09,.07,X?.09:1,cr],[x+.5,y0+.06,z+.5,X?1:.08,.08,X?.08:1,cr]);
+          for(let b=0;b<(stone?4:6);b++){const o=(b+.5)/(stone?4:6);trim.push([X?x+o:x+.5,y0+.5,X?z+.5:z+o,bw,.86,bw,cb]);}}
+        continue;}
+      if(lv.solid[i]&&kd===K.RAIL+8){panes.push([x+.5,y0+(y1-y0)/2,z+.5,1,y1-y0,1,0x7f9aa6]);continue;}
+      const r=roomAt(k,x,z);
+      // door lintels: an opening in an inside wall stops at 2.3 m
+      if(inHouse(x,z)&&k>0&&stA[i]<0){const isW=(xx,zz)=>isWall(k,xx,zz);
+        if((isW(x-1,z)&&isW(x+1,z))||(isW(x,z-1)&&isW(x,z+1)))trim.push([x+.5,y0+2.3+(y1-y0-2.3)/2,z+.5,1,y1-y0-2.3,1,0x3a2c22]);}
+      // floor
+      const hasF=k===0?(inHouse(x,z)&&!lv.solid[i]):(lv.floor&&lv.floor[i]===1);
+      if(hasF&&!(stA[i]>=0&&stBase[i]===k-1)){const t=floorOf(r||roomAt(k,x,z));quadH(K_(t),t[1],x,z,x+1,z+1,y0,true);}
+      // ceiling over this cell: the underside of the floor above (or the roof)
+      if((inHouse(x,z))&&!lv.solid[i]){const up=k<3?L[k+1]:null,has=k===3||(up.floor&&up.floor[i]===1);if(has&&r){const t=ceilOf(r);quadH(K_(t),t[1],x,z,x+1,z+1,(k===3?ROOF:LVY[k+1])-.2,false);}}
+      if(stA[i]>=0&&stBase[i]===k){const hh=rampH(i,x+.5,z+.5);steps.push([x+.5,hh-.08,z+.5,1,.16,1,0x4a3626]);}}}
+  for(const key in F){const f=F[key],g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(f.p,3));g.setAttribute('normal',new THREE.Float32BufferAttribute(f.n,3));g.setAttribute('uv',new THREE.Float32BufferAttribute(f.u,2));
+    const [n,,tint]=key.replace(/^X/,'').split('|'),m=new THREE.Mesh(g,mmat(n,+tint));m.receiveShadow=true;m.castShadow=key[0]==='X';scene.add(m);}
+  instanced(trim,lam(0xffffff));instanced(steps.map(q=>(q[6]=0x7a5c40,q)),lam(0xffffff));
+  const glass=new THREE.MeshLambertMaterial({color:0xb8c8d0,transparent:true,opacity:.22,depthWrite:false});instanced(panes,glass);
+  {const wood=0x3e2416,bal=[],hh=z=>(30-z)/5*3.2;
+    for(const x of [36.06,40.94]){for(let z=29.85;z>25;z-=.25)bal.push([x,hh(z)+.46,z,.045,.9,.045,0x4a2e1a]);
+      bal.push([x,.65,29.9,.2,1.3,.2,wood],[x,1.36,29.9,.26,.12,.26,wood],[x,3.2+.65,25.05,.2,1.3,.2,wood],[x,3.2+1.36,25.05,.26,.12,.26,wood]);
+      const len=Math.hypot(5,3.2),a=Math.atan2(3.2,5);for(const [dy,sw,sh] of [[.95,.08,.07],[0,.06,.28]]){const m=new THREE.Mesh(new THREE.BoxGeometry(sw,sh,len),lam(wood));m.position.set(x,1.6+dy,27.5);m.rotation.x=a;m.castShadow=true;scene.add(m);}}
+    instanced(bal,lam(0xffffff));}
+  // rugs: one carpet laid in the middle of each grand room
+  for(const [k,id] of [[1,'drawing'],[1,'library'],[1,'study'],[1,'dining'],[2,'mbed'],[2,'hallway']]){const r=M.rooms.find(q=>q.k===k&&q.id===id);if(!r)continue;
+    const w=Math.max(2,(r.X1-r.X0-1)*.62),d=Math.max(2,(r.Z1-r.Z0-1)*.62),m=flat(new THREE.PlaneGeometry(w,d),mmat('rug_persian',0xc8b8a8,{clamp:true}),(r.X0+.5+r.X1)/2,LVY[k]+.012,(r.Z0+.5+r.Z1)/2);m.receiveShadow=true;}
+  // ivy: climbing the back and the sides, never the front
+  {const ivyM=mmat('ivy',0xb0b8a8,{alpha:true,side:1}),sp=[[HX0+3,HZ0-.03,'n',7,5.5],[HX0+14,HZ0-.03,'n',5,3.6],[HX1-7,HZ0-.03,'n',8,6.4],[HX0-.03,HZ0+4,'w',6,4.4],[HX0-.03,HZ1-9,'w',5,3],[HX1+.03,HZ0+6,'e',9,6],[HX1+.03,HZ1-6,'e',4,2.6]];
+    for(const [x,z,f,w,h] of sp){const m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),ivyM);m.position.set(f==='n'?x+w/2:x,h/2,f==='n'?z:z+w/2);m.rotation.y=f==='n'?Math.PI:f==='w'?-Math.PI/2:Math.PI/2;
+      m.geometry.attributes.uv.array.forEach((v,i,a)=>{a[i]=v*(i%2?h:w)/3;});scene.add(m);}}
+  // roof: the flat top of the mansard in slate, the cresting, brick chimneys
+  const W=HX1-HX0,D=HZ1-HZ0,cx=(HX0+HX1)/2,cz=(HZ0+HZ1)/2;
+  {const rt=new THREE.Mesh(new THREE.BoxGeometry(W+.6,.24,D+.6),mmat('roof_slate_fishscale',0x7a7e86));rt.geometry.attributes.uv.array.forEach((v,i,a)=>{a[i]=v*8;});rt.position.set(cx,ROOF+.12,cz);rt.castShadow=true;scene.add(rt);}
+  instanced([[cx,ROOF+.3,cz,W-4,.2,D-4,0x2a2d31],[cx,ROOF+.6,HZ0+1.5,3,.5,.2,0x1c1d20]],lam(0xffffff));
+  {const cf=mmat('f_chimney_0',0xb8a090,{alpha:true,clamp:true}),cs=mmat('f_chimney_1',0xb8a090,{alpha:true,clamp:true}),ct=lam(0x221c18),g=new THREE.BoxGeometry(1.3,3.7,1.06);
+    for(const [x,z] of [[24,26],[30,13],[51,13],[55,30],[39,11.6]]){const c=new THREE.Mesh(g,[cs,cs,ct,ct,cf,cf]);c.position.set(x+O,ROOF+.24+1.85,z+O);c.castShadow=true;scene.add(c);}}
+  // balcony over the porch
+  instanced([[38.5,LVY[2]-.1,39.5,7,.2,3,0x8f8a7e]],lam(0xffffff));
+  instanced([35,36,40,41].map(x=>[x+.5,1.6,40.5,.35,3.2,.35,0xc9c3b4]),lam(0xffffff));
+  // the grounds: rough lawn, gravel drive and turning circle, setts at the service doors, the dry fountain, the boundary railing
+  {const sh=new THREE.Shape([[-80,-90],[160,-90],[160,150],[-80,150]].map(([x,y])=>new THREE.Vector2(x,y)));
+    // holes: the house with its conservatory, and the pit of the storm-door steps (the shape is in x,z; flat() lays it down)
+    sh.holes.push(new THREE.Path([[HX0,HZ0],[35,HZ0],[35,9],[42,9],[42,HZ0],[HX1,HZ0],[HX1,HZ1],[HX0,HZ1]].reverse().map(([x,z])=>new THREE.Vector2(x,-z))),
+      new THREE.Path([[18,29],[21,29],[21,30],[18,30]].reverse().map(([x,z])=>new THREE.Vector2(x,-z))));
+    const g=new THREE.ShapeGeometry(sh);flat(g,lam(0x1a2016),0,-.004,0);}
+  const tile=(m,w,d,S)=>{m.geometry.attributes.uv.array.forEach((v,i,a)=>{a[i]=v*(i%2?d:w)/S;});return m;};
+  tile(flat(new THREE.PlaneGeometry(7,5),mmat('floor_flagstone',0x8a8a84),38.5,.01,11.5),7,5,2); // the conservatory's tiled floor
+  tile(flat(new THREE.PlaneGeometry(4.4,13),mmat('ground_gravel',0x9a968c),38.5,.006,47.5),4.4,13,3);
+  {const c=flat(new THREE.CircleGeometry(5.2,40),mmat('ground_gravel',0x9a968c),38.5,.007,47);c.geometry.attributes.uv.array.forEach((v,i,a)=>{a[i]=v*10.4/3;});}
+  tile(flat(new THREE.PlaneGeometry(3,3),mmat('ext_cobble_setts',0x9a968c),27.5,.008,12.5),3,3,2);tile(flat(new THREE.PlaneGeometry(3,4),mmat('ext_cobble_setts',0x9a968c),15.5,.008,29.5),3,4,2);
+  for(const a of [0,Math.PI/2])card('f_fountain_0',38.5,2.05,47,a,2.2,4.1,{ds:1,tint:0xb0aca4});
+  {const pm=mmat('f_garden_pillar_0',0xb0a8a0,{alpha:true,clamp:true}),top=lam(0x4a4440),posts=[];
+    for(let x=O;x<=O+70;x+=7)for(const z of [O,O+50]){if(z===O+50&&x>34&&x<43)continue;posts.push([x,z,.9]);}
+    for(let z=O+7;z<O+50;z+=7)for(const x of [O,O+70])posts.push([x,z,.9]);
+    posts.push([35,O+50,1.4],[42,O+50,1.4]);
+    for(const [x,z,w] of posts){const h=w*1.85,m=new THREE.Mesh(new THREE.BoxGeometry(w,h,w),[pm,pm,top,top,pm,pm]);m.position.set(x,h/2,z);m.castShadow=true;scene.add(m);}
+    // iron railing panels between the pillars
+    const line=(fixed,isX,cs)=>{cs.sort((a,b)=>a[0]-b[0]);for(let i=0;i+1<cs.length;i++){const a=cs[i][0]+cs[i][1]/2,b=cs[i+1][0]-cs[i+1][1]/2,L=b-a;if(L<.6)continue;
+      if(isX&&fixed===O+50&&a>=35&&b<=42.1)continue;const n=Math.max(1,Math.round(L/1.55)),pw=L/n;for(let j=0;j<n;j++){const c=a+pw*(j+.5);card('f_iron_railing_0',isX?c:fixed,.78,isX?fixed:c,isX?0:Math.PI/2,pw,1.55,{ds:1,tint:0x9a9a9a});}}};
+    for(const z of [O,O+50])line(z,true,posts.filter(p=>p[1]===z).map(p=>[p[0],p[2]]).filter(p=>!(z===O+50&&p[0]>35&&p[0]<42)));
+    for(const x of [O,O+70])line(x,false,posts.filter(p=>p[0]===x).map(p=>[p[1],p[2]]));
+    // the gates stand open, swung back beside the drive
+    card('f_front_gate_0',35.78,1.8,O+50-1.4,Math.PI/2,2.8,3.6,{ds:1,uv:[0,.5],tint:0x9a9a9a});card('f_front_gate_0',41.22,1.8,O+50-1.4,-Math.PI/2,2.8,3.6,{ds:1,uv:[.5,1],tint:0x9a9a9a});}
+  for(const z of [29,30])card('f_cellar_entrance_1',19.45,.7,z,Math.PI,3.1,1.4,{ds:1,tint:0xa8a49c});
+  instanced([[O+35,.6,O+.8,50,1.2,.3,0x5f564a],[O+10,.6,O+5,.3,1.2,8.4,0x5f564a],[O+60,.6,O+5,.3,1.2,8.4,0x5f564a]],lam(0xffffff));
+  // dead trees, bushes and planters: painted cut-outs crossed so they read from every side
+  const META={"tree_twisted": [["tree_twisted_0.webp", 381, 512], ["tree_twisted_1.webp", 246, 512], ["tree_twisted_2.webp", 345, 512], ["tree_twisted_3.webp", 378, 512]], "tree_hollow": [["tree_hollow_0.webp", 287, 511], ["tree_hollow_1.webp", 202, 512], ["tree_hollow_2.webp", 285, 512], ["tree_hollow_3.webp", 314, 512]], "bush_dead": [["bush_dead_0.webp", 350, 384], ["bush_dead_1.webp", 367, 384], ["bush_dead_2.webp", 339, 384], ["bush_dead_3.webp", 375, 384]], "planter": [["planter_0.webp", 384, 268], ["planter_1.webp", 384, 347], ["planter_2.webp", 384, 290], ["planter_3.webp", 384, 328]]},R=(()=>{let s=7;return ()=>(s=(s*16807)%2147483647)/2147483647;})();
+  const crossed=(set,v,x,z,h,ry,shadow)=>{const g=new THREE.Group(),[f,w,hh]=META[set][v],m=mmat(f.replace('.webp',''),0xb0aaa0,{alpha:true,side:1,clamp:true});
+    for(const a of [0,Math.PI/2]){const q=new THREE.Mesh(new THREE.PlaneGeometry(h*w/hh,h),m);q.position.y=h/2;q.rotation.y=a;q.castShadow=!!shadow;g.add(q);}
+    g.position.set(x,0,z);g.rotation.y=ry;scene.add(g);return g;};
+  [[6,4],[64,5],[8,46],[62,45],[10,33],[58,20],[24,44],[46,46]].forEach(([x,z],i)=>crossed(i%2?'tree_hollow':'tree_twisted',(i>>1)%4,x+O+.5,z+O+.5,6.5+R()*2,R()*6,true));
+  for(let i=0;i<34;i++){const side=i%4,t=R();const x=side<2?HX0+1+t*(HX1-HX0-2):side===2?HX0-.8:HX1+.8,z=side===0?HZ0-.8:side===1?HZ1+.8:HZ0+1+t*(HZ1-HZ0-2);
+    if(side===1&&x>33&&x<44)continue;if(Math.abs(x-27)<2&&side===0)continue;if(side===2&&Math.abs(z-29)<2.5)continue;crossed('bush_dead',i%4,x,z,1.1+R()*.7,R()*6);}
+  for(let i=0;i<28;i++){const x=O+3+R()*64,z=O+12+R()*34;if(x>HX0-3&&x<HX1+3&&z>HZ0-3&&z<HZ1+3)continue;if(Math.abs(x-38.5)<4&&z>40)continue;crossed('bush_dead',i%4,x,z,.8+R()*.9,R()*6);}
+  for(const x of [13,19,25,45,51,57])for(const y of [3.2,6])crossed('planter',(x+y|0)%4,x+O,y+O+.9,1.0,0);
+}
+// ---- furniture: your painted fronts, sides and backs on boxes; every piece of one kind is drawn in one go
+const FURN={"kitchen_range": {"v": [[294, 384], [164, 384], [273, 384]], "top": "#363533", "d": [1.6, 0.8, 1.5]}, "stone_sink": {"v": [[284, 384], [193, 384], [301, 384]], "top": "#756f63", "d": [1.2, 0.6, 1.0]}, "kitchen_dresser": {"v": [[298, 384], [153, 384], [263, 384]], "top": "#3d2c21", "d": [1.6, 0.5, 2.1]}, "kitchen_work_table": {"v": [[352, 384], [333, 384], [334, 384]], "top": "#64432e", "d": [2.2, 1, 0.9]}, "wash_tub": {"v": [[384, 310], [384, 296], [384, 320]], "top": "#4a413c", "d": [0.8, 0.8, 0.7]}, "pantry_shelves": {"v": [[239, 384], [92, 384], [201, 384]], "top": "#3d2f1f", "d": [1.5, 0.5, 2.0]}, "icebox": {"v": [[194, 384], [156, 384], [181, 384]], "top": "#3a2e24", "d": [0.9, 0.6, 1.4]}, "mangle": {"v": [[173, 384], [136, 384], [165, 384]], "top": "#423a33", "d": [1, 0.7, 1.4]}, "wine_rack": {"v": [[171, 384], [98, 384], [164, 384]], "top": "#3f3024", "d": [1.5, 0.5, 1.9]}, "boiler": {"v": [[219, 384], [275, 384], [225, 384]], "top": "#3a3834", "d": [1.6, 1.4, 2.2]}, "gas_control_cabinet": {"v": [[250, 384], [110, 384], [189, 384]], "top": "#2f2418", "d": [1.3, 0.4, 1.8]}, "hall_stand": {"v": [[144, 384], [99, 384], [144, 384]], "top": "#4b3725", "d": [1.1, 0.5, 2.2]}, "grandfather_clock": {"v": [[117, 384], [96, 384], [111, 384]], "top": "#3d2716", "d": [0.6, 0.45, 2.2]}, "dining_chair": {"v": [[172, 384], [184, 384], [160, 384]], "top": "#45382e", "d": [0.55, 0.55, 1.05]}, "piano": {"v": [[274, 384], [161, 383], [253, 384]], "top": "#30231a", "d": [1.5, 0.65, 1.3]}, "parlor_settee": {"v": [[384, 310], [282, 384], [384, 342]], "top": "#44382b", "d": [1.9, 0.8, 1.0]}, "parlor_armchair": {"v": [[238, 384], [221, 384], [202, 384]], "top": "#504233", "d": [0.85, 0.8, 1.05]}, "parlor_side_table": {"v": [[384, 306], [384, 306], [384, 324]], "top": "#352c29", "d": [0.6, 0.6, 0.7]}, "fireplace": {"v": [[315, 384], [104, 384], [291, 384]], "top": "#252019", "d": [1.8, 0.5, 1.4]}, "dining_table": {"v": [[375, 384], [314, 384], [348, 384]], "top": "#3a2a20", "d": [2.6, 1.1, 0.8]}, "sideboard": {"v": [[384, 274], [164, 384], [298, 384]], "top": "#31251f", "d": [1.8, 0.55, 1.0]}, "study_bookcase": {"v": [[169, 384], [75, 384], [161, 384]], "top": "#221b17", "d": [1.2, 0.4, 2.3]}, "study_desk": {"v": [[384, 323], [211, 384], [384, 369]], "top": "#372b23", "d": [1.6, 0.8, 0.8]}, "study_armchair": {"v": [[209, 384], [188, 384], [175, 384]], "top": "#4b3a2c", "d": [0.8, 0.8, 1.1]}, "globe": {"v": [[223, 384], [196, 384], [201, 384]], "top": "#7d6d45", "d": [0.7, 0.7, 1.1]}, "billiard_table": {"v": [[384, 232], [384, 221], [384, 246]], "top": "#2d231f", "d": [2.7, 1.5, 0.85]}, "toilet_highcistern": {"v": [[145, 384], [155, 384], [148, 384]], "top": "#543927", "d": [0.5, 0.6, 2.2]}, "vanity": {"v": [[250, 384], [115, 384], [229, 384]], "top": "#3d342c", "d": [1.2, 0.55, 1.7]}, "shaving_washstand": {"v": [[177, 384], [126, 384], [166, 384]], "top": "#5c4e45", "d": [0.9, 0.5, 1.6]}, "wardrobe": {"v": [[206, 384], [83, 384], [185, 384]], "top": "#2a1f17", "d": [1.4, 0.6, 2.2]}, "clawfoot_tub": {"v": [[384, 354], [384, 224], [384, 333]], "top": "#b5b4b6", "d": [1.7, 0.8, 0.75]}, "bath_vanity": {"v": [[266, 384], [170, 384], [254, 384]], "top": "#3b3834", "d": [1.1, 0.55, 1.6]}, "bed_master_fourposter": {"v": [[247, 384], [264, 384], [239, 384]], "top": "#3c3225", "d": [1.9, 2.2, 2.3]}, "nightstand": {"v": [[297, 384], [198, 384], [279, 383]], "top": "#2d1f19", "d": [0.5, 0.45, 0.7]}, "chest_with_mirror": {"v": [[189, 384], [122, 383], [166, 384]], "top": "#34271c", "d": [1.2, 0.5, 1.8]}, "bed_twin_brass": {"v": [[250, 384], [354, 384], [237, 384]], "top": "#534d31", "d": [1, 2, 1.2]}, "dollhouse": {"v": [[195, 384], [158, 384], [384, 370]], "top": "#5a5241", "d": [1, 0.5, 1.2]}, "toy_chest": {"v": [[378, 384], [266, 384], [348, 384]], "top": "#704c2c", "d": [0.9, 0.5, 0.6]}, "rocking_horse": {"v": [[149, 384], [299, 384], [145, 384]], "top": "#785c41", "d": [1.1, 0.4, 0.9]}, "washstand_mirror": {"v": [[178, 384], [112, 384], [170, 384]], "top": "#5d5047", "d": [0.9, 0.5, 1.6]}, "servant_side_table": {"v": [[281, 384], [200, 384], [267, 384]], "top": "#221d18", "d": [0.6, 0.45, 0.75]}, "servant_drawers": {"v": [[335, 384], [183, 384], [315, 384]], "top": "#342820", "d": [0.9, 0.45, 1.0]}, "bed_twin_wood": {"v": [[377, 384], [384, 267], [384, 354]], "top": "#2e2825", "d": [1, 2, 0.9]}, "servant_washstand": {"v": [[189, 384], [146, 384], [180, 384]], "top": "#5f5145", "d": [0.8, 0.45, 0.85]}, "servant_nightstand": {"v": [[293, 384], [225, 384], [280, 384]], "top": "#27201c", "d": [0.45, 0.4, 0.7]}, "servant_wardrobe": {"v": [[197, 384], [112, 384], [183, 384]], "top": "#251e1a", "d": [1, 0.55, 1.9]}, "servant_dressing_table": {"v": [[171, 384], [131, 384], [167, 384]], "top": "#483d36", "d": [0.9, 0.45, 1.5]}, "servant_tin_tub": {"v": [[383, 253], [384, 244], [384, 258]], "top": "#68696c", "d": [1.4, 0.7, 0.55]}, "stove": {"v": [[284, 384], [213, 383], [261, 384]], "top": "#2e2e2d", "d": [0.7, 0.7, 1.1]}, "journal_desk": {"v": [[312, 384], [186, 384], [266, 384]], "top": "#312218", "d": [1.3, 0.7, 1.1]}, "stained_chair": {"v": [[166, 384], [165, 384], [147, 384]], "top": "#3b2a21", "d": [0.7, 0.7, 1.2]}, "hair_cabinet": {"v": [[237, 384], [82, 384], [203, 384]], "top": "#30261c", "d": [1, 0.4, 1.6]}, "specimen_cabinet": {"v": [[268, 384], [79, 384], [230, 384]], "top": "#281e15", "d": [1.2, 0.5, 2.0]}, "teeth_jewel_case": {"v": [[270, 384], [176, 384], [384, 299]], "top": "#342a1d", "d": [0.5, 0.35, 0.25]}, "dress_form": {"v": [[95, 384], [95, 384], [95, 384]], "top": "#97866b", "d": [0.6, 0.6, 1.6]}, "bloody_boots": {"v": [[164, 384], [384, 319], [326, 384]], "top": "#2f241d", "d": [0.4, 0.3, 0.5]}};
+const TOPF={kitchen_work_table:1,dining_table:1,study_desk:1,sideboard:1,billiard_table:1,kitchen_range:1,stone_sink:.95,icebox:1,servant_drawers:1,toy_chest:1,nightstand:1,
+  servant_nightstand:1,servant_side_table:1,parlor_side_table:1,journal_desk:.66,bed_twin_brass:.45,bed_twin_wood:.5,bed_master_fourposter:.3,piano:1,teeth_jewel_case:1,
+  kitchen_dresser:.45,servant_dressing_table:.5,vanity:.45,bath_vanity:.5,washstand_mirror:.5,servant_washstand:1,chest_with_mirror:.55,boiler:1,mangle:0,stove:1,hair_cabinet:1,specimen_cabinet:1,wardrobe:1,servant_wardrobe:1,study_bookcase:1,pantry_shelves:1,wine_rack:1,gas_control_cabinet:1};
+const TOPC={bed_twin_brass:0x9e978b,bed_twin_wood:0x8a8274,bed_master_fourposter:0x6a2c2a,billiard_table:0x1f4a2a,stone_sink:0x7a756c};
+// what goes in each room: [piece, where, count] — where: wall (against a wall, facing in), center, around (chairs round the last table), beside (either side of the last piece), on (on top of the last piece)
+const W_=(n,c)=>[n,'wall',c||1],C_=n=>[n,'center',1],A_=(n,c)=>[n,'around',c],B_=n=>[n,'beside',2],O_=n=>[n,'on',1],H_=(n,c)=>[n,'wall',c||1];
+const RECIPE={
+ '0:kitchen':[W_('kitchen_range'),W_('stone_sink'),W_('kitchen_dresser',2),C_('kitchen_work_table')],'0:scul':[W_('stone_sink'),W_('wash_tub')],'0:pant':[W_('pantry_shelves',3)],
+ '0:cold':[W_('icebox',2)],'0:laundry':[W_('mangle'),W_('stone_sink'),W_('wash_tub',2)],'0:wine':[W_('wine_rack',6)],'0:boiler':[W_('boiler'),W_('gas_control_cabinet')],
+ '0:lord':[W_('journal_desk'),O_('teeth_jewel_case'),W_('hair_cabinet'),W_('specimen_cabinet'),W_('dress_form'),C_('stained_chair'),B_('bloody_boots')],
+ '1:hall':[W_('hall_stand'),W_('grandfather_clock')],'1:ballroom':[W_('piano'),W_('dining_chair',12)],
+ '1:drawing':[W_('fireplace'),W_('parlor_settee'),W_('piano'),W_('parlor_armchair',2),W_('parlor_side_table',2)],
+ '1:dining':[C_('dining_table'),A_('dining_chair',8),W_('sideboard',2)],'1:pantry':[W_('kitchen_dresser')],
+ '1:library':[W_('study_bookcase',9),W_('parlor_armchair',2),W_('parlor_side_table')],'1:study':[W_('study_desk'),W_('study_armchair'),W_('globe'),W_('study_bookcase',3)],
+ '1:billiard':[C_('billiard_table'),W_('dining_chair',3),W_('parlor_side_table')],'1:cloak':[W_('toilet_highcistern')],'1:retiring':[W_('vanity'),W_('servant_side_table')],
+ '2:mbed':[W_('bed_master_fourposter'),B_('nightstand'),W_('chest_with_mirror'),W_('wardrobe')],'2:her':[W_('vanity'),W_('parlor_side_table')],'2:his':[W_('shaving_washstand'),W_('wardrobe')],
+ '2:mbath':[W_('clawfoot_tub'),W_('bath_vanity'),W_('toilet_highcistern')],'2:closet':[W_('wardrobe',2)],
+ '2:girls':[W_('bed_twin_brass',2),W_('dollhouse'),W_('nightstand')],'2:boy':[W_('bed_twin_brass'),W_('rocking_horse'),W_('toy_chest')],'2:kbath':[W_('washstand_mirror')],
+ '2:famb':[W_('clawfoot_tub'),W_('bath_vanity'),W_('toilet_highcistern')],'2:sewing':[W_('servant_side_table'),W_('servant_drawers')],'2:gov':[W_('bed_twin_wood'),W_('servant_washstand'),W_('servant_drawers')],
+ '2:hallway':[W_('grandfather_clock'),W_('parlor_side_table',2),W_('parlor_armchair',2)],
+ '2:g1':[W_('bed_twin_brass'),B_('nightstand'),W_('wardrobe')],'2:g2':[W_('bed_twin_brass'),B_('nightstand'),W_('chest_with_mirror')],
+ '2:g3':[W_('bed_twin_brass'),B_('nightstand'),W_('wardrobe')],'2:g4':[W_('bed_twin_brass'),B_('nightstand'),W_('chest_with_mirror')],
+ '2:bathA':[W_('washstand_mirror')],'2:bathB':[W_('washstand_mirror')],'2:lin1':[W_('servant_drawers')],'2:lin2':[W_('servant_drawers')],
+ '3:hk':[W_('study_desk'),W_('parlor_armchair'),W_('servant_wardrobe')],'3:shall':[C_('kitchen_work_table'),A_('dining_chair',6),W_('kitchen_dresser'),W_('stove'),W_('grandfather_clock')],
+ '3:trunk':[W_('toy_chest',4),W_('servant_wardrobe')],'3:store':[W_('toy_chest',2)],
+ '3:s1':[W_('bed_twin_wood'),W_('servant_nightstand'),W_('servant_drawers')],'3:s2':[W_('bed_twin_wood'),W_('servant_dressing_table'),W_('servant_side_table')],
+ '3:s3':[W_('bed_twin_wood'),W_('servant_nightstand'),W_('servant_wardrobe')],'3:s4':[W_('bed_twin_wood'),W_('servant_dressing_table'),W_('servant_drawers')],
+ '3:s5':[W_('bed_twin_wood'),W_('servant_side_table'),W_('servant_drawers')],'3:s6':[W_('bed_twin_wood'),W_('servant_nightstand'),W_('servant_wardrobe')],
+ '3:washA':[W_('servant_washstand')],'3:washB':[W_('servant_tin_tub'),W_('servant_washstand')],'3:washC':[W_('servant_washstand')],
+ '3:box':[W_('wardrobe'),W_('chest_with_mirror'),W_('servant_drawers'),W_('toy_chest'),W_('servant_wardrobe')]};
+function furnish(){
+  const R=(()=>{let s=19;return ()=>(s=(s*16807)%2147483647)/2147483647;})(),out=[];
+  for(const r of M.rooms){const key=r.k+':'+r.id,rec=(RECIPE[key]||[]).concat(lampsFor(r),RECIPE2[key]||[]);if(!rec.length)continue;const lv=LEVELS[r.k];
+    const ix0=r.X0+1,iz0=r.Z0+1,ix1=r.X1===HX1?r.X1-1:r.X1,iz1=r.Z1===HZ1?r.Z1-1:r.Z1,occ=[];
+    const hit=(a,b)=>a[0]<b[2]&&a[2]>b[0]&&a[1]<b[3]&&a[3]>b[1],soft=M.occ.filter(o=>o.k===r.k&&o.soft);let SOFT=1;
+    const free=(a)=>a[0]>=ix0+.04&&a[1]>=iz0+.04&&a[2]<=ix1-.04&&a[3]<=iz1-.04&&!occ.some(b=>hit(a,b))&&!(SOFT&&soft.some(o=>hit(a,o.a)));
+    // doorways and stairs stay clear: a 1.3 m apron inside every opening on the room's edge
+    const op=(x,z)=>inWorld(x,z)&&!lv.solid[idx(x,z)];
+    for(let x=ix0;x<ix1;x++){if(op(x,iz0-1))occ.push([x-.3,iz0,x+1.3,iz0+1.3]);if(op(x,iz1))occ.push([x-.3,iz1-1.3,x+1.3,iz1]);}
+    for(let z=iz0;z<iz1;z++){if(op(ix0-1,z))occ.push([ix0,z-.3,ix0+1.3,z+1.3]);if(op(ix1,z))occ.push([ix1-1.3,z-.3,ix1,z+1.3]);}
+    for(let x=ix0;x<ix1;x++)for(let z=iz0;z<iz1;z++){const i=idx(x,z);if(stA[i]>=0||lv.solid[i])occ.push([x-.6,z-.6,x+1.6,z+1.6]);}
+    for(const o of M.occ)if(o.k===r.k&&!o.soft)occ.push(o.a);
+    let last=null;
+    for(const [n,mode,cnt] of rec){const F=FURN[n]||(HANG[n]&&{d:[HANG[n][0],.3,HANG[n][1]]});if(!F)continue;const [w,d]=F.d;
+      for(let c=0;c<cnt;c++){let pl=null;for(const pass of [1,0]){SOFT=pass;
+        if(mode==='wall'){const sides=[['n',ix1-ix0],['s',ix1-ix0],['w',iz1-iz0],['e',iz1-iz0]].sort((a,b)=>b[1]-a[1]+(R()-.5)*1.5);
+          for(const [sd] of sides){const along=sd==='n'||sd==='s',lo=along?ix0:iz0,hi=(along?ix1:iz1)-w,st=lo+.1+R()*.5;
+            for(let t=0;t<=hi-lo;t+=.25){const p=lo+.1+((st-lo-.1+t)%Math.max(.01,hi-lo-.1));let a;
+              if(sd==='n')a=[p,iz0+.04,p+w,iz0+.04+d];else if(sd==='s')a=[p,iz1-.04-d,p+w,iz1-.04];else if(sd==='w')a=[ix0+.04,p,ix0+.04+d,p+w];else a=[ix1-.04-d,p,ix1-.04,p+w];
+              if(free(a)){pl={a,sd,ry:{n:0,s:Math.PI,w:Math.PI/2,e:-Math.PI/2}[sd]};break;}}
+            if(pl)break;}}
+        else if(mode==='center'){const cx=(ix0+ix1)/2,cz=(iz0+iz1)/2,rot=(ix1-ix0)<(iz1-iz0),ww=rot?d:w,dd=rot?w:d,a=[cx-ww/2,cz-dd/2,cx+ww/2,cz+dd/2];if(free(a))pl={a,ry:rot?Math.PI/2:0};}
+        else if(mode==='around'&&last){const L=last,lw=L.a[2]-L.a[0],ld=L.a[3]-L.a[1],longX=lw>=ld,k2=Math.ceil(cnt/2),i2=c%k2,side=c<k2?-1:1;
+          const f=(i2+.5)/k2-.5;let x,z,ry;if(longX){x=(L.a[0]+L.a[2])/2+f*lw*.9;z=side<0?L.a[1]-d*.35:L.a[3]+d*.35;ry=side<0?0:Math.PI;}else{z=(L.a[1]+L.a[3])/2+f*ld*.9;x=side<0?L.a[0]-d*.35:L.a[2]+d*.35;ry=side<0?Math.PI/2:-Math.PI/2;}
+          pl={a:[x-w/2,z-d/2,x+w/2,z+d/2],ry,noOcc:1};}
+        else if(mode==='beside'&&last){const L=last,cx=(L.a[0]+L.a[2])/2,cz=(L.a[1]+L.a[3])/2,s=c?1:-1,along=Math.abs(Math.sin(L.ry))<.5;
+          let a;if(along){const x=s<0?L.a[0]-.08-w:L.a[2]+.08;const z=Math.abs(L.ry)<.1?L.a[1]:L.a[3]-d;a=[x,z,x+w,z+d];}else{const z=s<0?L.a[1]-.08-w:L.a[3]+.08;const x=L.ry>0?L.a[0]:L.a[2]-d;a=[x,z,x+d,z+w];}
+          if(free(a))pl={a,ry:L.ry};}
+        else if(mode==='on'&&last){const cx=(last.a[0]+last.a[2])/2,cz=(last.a[1]+last.a[3])/2;pl={a:[cx-w/2,cz-d/2,cx+w/2,cz+d/2],ry:last.ry,y:FURN[last.n].d[2]*(TOPF[last.n]||1),noOcc:1};}
+        if(pl){if(!pass)for(const o of soft)if(o.leaf!==undefined&&hit(pl.a,o.a))M.leaves[o.leaf].gone=true;break;}}
+        if(!pl)continue;pl.n=n;pl.k=r.k;pl.room=r.id;if(!pl.noOcc)occ.push(pl.a);out.push(pl);if(mode!=='beside'&&mode!=='on'&&mode!=='around')last=pl;}}}
+  return out;}
+// paintings and mirrors hung on the walls, and the standing mirrors, added to each room after its furniture
+const DECO={"ballroom_pier_mirror": {"v": [[196, 512], [35, 512], [181, 512]], "glass": [0.2245, 0.1602, 0.7806, 0.8691]}, "mirror_cheval": {"v": [[192, 512], [147, 512], [183, 512]], "glass": [0.2396, 0.0312, 0.7969, 0.7559]}, "mirror_gilt": {"v": [[208, 511], [130, 512], [185, 511]], "glass": [0.3077, 0.1252, 0.7115, 0.775]}, "mirror_barley": {"v": [[210, 512], [97, 512], [203, 512]], "glass": [0.2333, 0.0918, 0.7571, 0.8086]}, "cloakroom_oval_mirror": {"v": [[182, 384], [182, 384], [182, 384]], "glass": [0.1758, 0.2396, 0.8187, 0.7969]}, "mirror_oval_wall": {"v": [[211, 384], [211, 384], [211, 384]], "glass": [0.2275, 0.2656, 0.7678, 0.7474]}, "mirror_wall_tall": {"v": [[233, 512], [233, 512], [233, 512]], "glass": [0.1459, 0.2168, 0.8627, 0.9238]}, "servant_wall_mirror": {"v": [[237, 384], [237, 384], [237, 384]], "glass": [0.097, 0.0625, 0.903, 0.9375]}, "curtains_red": {"v": [[246, 512], [246, 512], [246, 512]]}, "curtains_lace": {"v": [[281, 512], [281, 512], [281, 512]]}, "curtains_black": {"v": [[294, 512], [294, 512], [294, 512]]}, "door_family": {"v": [[228, 512], [52, 512], [217, 512]]}, "door_staff": {"v": [[234, 512], [47, 512], [220, 512]]}, "front_double_doors": {"v": [[302, 512], [81, 512], [260, 512]]}, "lord_cellar_door": {"v": [[271, 512], [111, 512], [246, 512]]}, "window_sash": {"v": [[254, 512], [83, 512], [83, 512]]}, "window_dormer": {"v": [[222, 384], [156, 384], [229, 384]]}, "window_cellar": {"v": [[302, 383], [302, 383], [302, 383]]}, "chimney": {"v": [[135, 384], [110, 384], [110, 384]]}, "garden_pillar": {"v": [[212, 384], [90, 384], [90, 384]]}, "iron_railing": {"v": [[512, 502], [512, 502], [512, 502]]}, "front_gate": {"v": [[400, 512], [400, 512], [400, 512]]}, "fountain": {"v": [[204, 384], [204, 384], [204, 384]]}, "cellar_entrance": {"v": [[260, 384], [174, 384], [174, 384]]}, "staircase_banister": {"v": [[303, 512], [303, 512], [303, 512]]}, "wall_sconce": {"v": [[135, 384], [125, 384], [125, 384]]}, "chandelier": {"v": [[332, 512], [332, 512], [332, 512]]}, "oil_lamp": {"v": [[76, 256], [76, 256], [76, 256]]}, "handheld_oil_lamp": {"v": [[114, 256], [114, 256], [114, 256]]}, "servant_wall_lamp": {"v": [[85, 256], [106, 256], [106, 256]]}, "servant_table_lamp": {"v": [[80, 256], [80, 256], [80, 256]]}, "servant_candlestick": {"v": [[124, 256], [124, 256], [124, 256]]}, "candelabra": {"v": [[126, 256], [126, 256], [126, 256]]}, "bell_board": {"v": [[169, 384], [169, 384], [169, 384]]}, "lord_key": {"v": [[78, 256], [78, 256], [78, 256]]}, "p_portrait_children": {"v": [[343, 512]]}, "p_portrait_couple": {"v": [[343, 512]]}, "p_portrait_family": {"v": [[343, 512]]}, "p_portrait_grandparents": {"v": [[343, 512]]}, "p_portrait_lord": {"v": [[343, 512]]}, "p_portrait_parents": {"v": [[343, 512]]}, "p_painting_landscape": {"v": [[512, 343]]}, "p_decoy_abbey": {"v": [[512, 343]]}, "p_decoy_interior": {"v": [[343, 512]]}, "p_decoy_pastoral": {"v": [[512, 343]]}, "p_decoy_river": {"v": [[512, 343]]}, "p_decoy_seastorm": {"v": [[512, 343]]}, "p_decoy_stilllife": {"v": [[343, 512]]}};
+const HANG={ // width, height, centre height, painting / mirror / lamp / plain card, has its own painted frame
+ wall_sconce:[.3,.85,2.05,'L'],servant_wall_lamp:[.22,.66,2.0,'L'],bell_board:[.5,1.14,1.75,'d'],
+ portrait_children:[1,1.49,1.85,'p'],portrait_couple:[1,1.49,1.85,'p'],portrait_family:[1.1,1.64,1.85,'p'],portrait_grandparents:[1,1.49,1.85,'p'],
+ portrait_parents:[1,1.49,1.85,'p'],portrait_lord:[1.1,1.64,1.8,'p',1],painting_landscape:[1.45,.97,1.75,'p',1],
+ decoy_abbey:[1.3,.87,1.75,'p'],decoy_pastoral:[1.3,.87,1.75,'p'],decoy_river:[1.3,.87,1.75,'p'],decoy_seastorm:[1.3,.87,1.75,'p'],decoy_interior:[.8,1.19,1.75,'p'],decoy_stilllife:[.8,1.19,1.75,'p'],
+ cloakroom_oval_mirror:[.62,1.3,1.6,'m'],mirror_oval_wall:[.72,1.31,1.65,'m'],mirror_wall_tall:[.95,2.09,1.35,'m'],servant_wall_mirror:[.55,.89,1.55,'m']};
+for(const [n,d] of Object.entries({ballroom_pier_mirror:[1.0,.3,2.6],mirror_cheval:[.8,.55,1.9],mirror_gilt:[.85,.5,2.05],mirror_barley:[.85,.45,2.05]}))FURN[n]={d,v:DECO[n].v,top:'#2a2018',glass:DECO[n].glass};
+const PORTRAITS=['portrait_lord','portrait_family','portrait_parents','portrait_grandparents','portrait_couple','portrait_children'];
+const RECIPE2={
+ '1:hall':[H_('mirror_wall_tall'),H_('decoy_pastoral'),H_('painting_landscape')],'1:ballroom':[W_('ballroom_pier_mirror',2),H_('painting_landscape',2),H_('decoy_seastorm')],
+ '1:drawing':[H_('portrait_family'),H_('mirror_oval_wall'),H_('decoy_river')],'1:dining':[H_('portrait_parents'),H_('decoy_stilllife')],
+ '1:library':[H_('portrait_grandparents'),H_('decoy_river')],'1:study':[H_('decoy_abbey')],'1:billiard':[H_('decoy_seastorm'),H_('painting_landscape')],
+ '1:cloak':[H_('cloakroom_oval_mirror')],'1:retiring':[H_('mirror_oval_wall'),H_('decoy_interior')],
+ '2:mbed':[W_('mirror_cheval'),H_('portrait_couple')],'2:her':[W_('mirror_gilt')],'2:his':[W_('mirror_barley')],
+ '2:hallway':[H_('portrait_children'),H_('mirror_wall_tall'),H_('decoy_pastoral')],'2:eastc':[H_('decoy_abbey')],
+ '2:g1':[H_('mirror_oval_wall'),H_('decoy_pastoral')],'2:g2':[W_('mirror_cheval'),H_('decoy_river')],'2:g3':[H_('mirror_wall_tall'),H_('decoy_interior')],'2:g4':[H_('mirror_oval_wall'),H_('decoy_seastorm')],
+ '2:girls':[H_('decoy_pastoral'),H_('mirror_oval_wall')],'2:boy':[H_('decoy_seastorm')],'2:gov':[H_('servant_wall_mirror'),H_('decoy_stilllife')],
+ '2:mbath':[H_('cloakroom_oval_mirror')],'2:famb':[H_('cloakroom_oval_mirror')],'2:kbath':[H_('servant_wall_mirror')],'2:bathA':[H_('servant_wall_mirror')],'2:bathB':[H_('servant_wall_mirror')],
+ '3:washA':[H_('servant_wall_mirror')],'3:washB':[H_('servant_wall_mirror')],'3:washC':[H_('servant_wall_mirror')],'3:s2':[H_('servant_wall_mirror')],'3:s4':[H_('servant_wall_mirror')],
+ '3:s6':[H_('servant_wall_mirror')],'3:hk':[H_('servant_wall_mirror')]};
+RECIPE['0:kitchen'].push(['bell_board','wall',1]);
+// the gas brackets each room gets: brass sconces in the family's rooms, plain iron brackets below stairs and in the attic
+function lampsFor(r){if(r.id==='balcony'||r.id==='cons'||r.id==='lord')return [];const a=(r.X1-r.X0-1)*(r.Z1-r.Z0-1);
+  const plain=r.k===0||r.k===3||r.zone==='work'||r.zone==='staff'||STAFFR.has(r.id);
+  return [[plain?'servant_wall_lamp':'wall_sconce','wall',plain?(a<14?1:2):(a<10?1:a<40?2:a<90?3:4)]];}
+const FT={};
+function fTemplate(n){if(FT[n])return FT[n];const F=FURN[n],[w,d,h]=F.d,faces=[];
+  const mat=i=>{const m=new THREE.MeshLambertMaterial({map:mtex('f_'+n+'_'+i,{clamp:true}),alphaTest:.5});return m;};
+  const fm=mat(0),sm=mat(1),bm=mat(2);
+  faces.push({g:new THREE.PlaneGeometry(w,h),m:fm,p:[0,h/2,d/2],ry:0},{g:new THREE.PlaneGeometry(w,h),m:bm,p:[0,h/2,-d/2],ry:Math.PI},
+    {g:new THREE.PlaneGeometry(d,h),m:sm,p:[w/2,h/2,0],ry:Math.PI/2},{g:new THREE.PlaneGeometry(d,h),m:sm,p:[-w/2,h/2,0],ry:-Math.PI/2});
+  if(TOPF[n]!==undefined&&TOPF[n]>0){const tg=new THREE.PlaneGeometry(w*.96,d*.96);tg.rotateX(-Math.PI/2);faces.push({g:tg,m:lam(TOPC[n]||new THREE.Color(F.top).getHex()),p:[0,h*TOPF[n],0],ry:0});}
+  return FT[n]=faces;}
+function furnitureMesh(n){const g=new THREE.Group();for(const f of fTemplate(n)){const m=new THREE.Mesh(f.g,f.m);m.position.set(...f.p);m.rotation.y=f.ry;g.add(m);}
+  if(FURN[n].glass){const q=glassLocal(n);const m=glassMesh(n,q.w,q.h,false);m.position.set(q.x,q.y,q.z);g.add(m);}return g;}
+function glassLocal(n){const [w,d,h]=FURN[n].d,[u0,v0,u1,v1]=FURN[n].glass;return {x:((u0+u1)/2-.5)*w,y:(1-(v0+v1)/2)*h,z:d/2-.012,w:(u1-u0)*w,h:(v1-v0)*h};}
+function glassMesh(n,w,h,oval){const g=oval?new THREE.CircleGeometry(.5,40):new THREE.PlaneGeometry(1,1),m=new THREE.Mesh(g,mmat('g_'+n,0x8a949a,{clamp:true}));m.scale.set(w,h,1);return m;}
+function placeFurniture(){
+  const list=furnish(),by={};M.furn=list;M.mirrors=[];M.paintings=[];
+  for(const p of list){if(HANG[p.n])hang(p);else (by[p.n]=by[p.n]||[]).push(p);}
+  hang({n:'portrait_lord',k:2,ry:0,sd:'n',a:[36.45,23.04,37.55,23.34],landing:1}); // the portrait at the head of the grand staircase
+  instanced(M.frames,lam(0xffffff));
+  for(const D of M.leaves)if(!D.gone)card(D.tex,D.x,D.y,D.z,D.ry,D.w,D.h,{uv:D.uv,rx:D.rx});
+  dressLights(list);
+  const _m=new THREE.Matrix4(),_f=new THREE.Matrix4(),_q=new THREE.Quaternion(),_e=new THREE.Euler(),_v=new THREE.Vector3(),_s=new THREE.Vector3(1,1,1),ZERO=new THREE.Matrix4().makeScale(0,0,0);
+  for(const n in by){const items=by[n],faces=fTemplate(n),meshes=faces.map(f=>{const im=new THREE.InstancedMesh(f.g,f.m,items.length);im.receiveShadow=true;scene.add(im);return im;});
+    items.forEach((p,j)=>{const cx=(p.a[0]+p.a[2])/2,cz=(p.a[1]+p.a[3])/2;_m.compose(_v.set(cx,LVY[p.k]+(p.y||0),cz),_q.setFromEuler(_e.set(0,p.ry,0)),_s);
+      const mats=faces.map(f=>new THREE.Matrix4().multiplyMatrices(_m,_f.compose(new THREE.Vector3(...f.p),new THREE.Quaternion().setFromEuler(new THREE.Euler(0,f.ry,0)),_s)));
+      mats.forEach((mm,fi)=>meshes[fi].setMatrixAt(j,mm));
+      // big pieces block movement and stop bullets, and can be smashed or thrown, like the cul-de-sac's
+      const [w,d,h]=FURN[n].d;if(p.y||w*d<.12)return;const t='m_'+n;
+      if(!PT[t])PT[t]={hp:Math.round(60+w*d*h*45),r:Math.min(1.05,Math.max(.22,Math.min(w,d)/2+.08)),h,dmg:h>1.5?34:25,light:w*d*h<.45?1:0};
+      const i=PROPS.length;PROPS.push({t,x:cx,z:cz,l:p.k,r:p.ry});PROPSTATE.push(0);PROPVIS[i]=0;
+      let mir=null;if(FURN[n].glass){const q=glassLocal(n),c=Math.cos(p.ry),s_=Math.sin(p.ry),g=glassMesh(n,q.w,q.h,false);
+        g.position.set(cx+q.x*c+q.z*s_,LVY[p.k]+q.y,cz-q.x*s_+q.z*c);g.rotation.y=p.ry;scene.add(g);mir=addMirror(n,p.k,g,p.ry,q.w,q.h,false);}
+      let vis=true;PROPMESH[i]={get visible(){return vis;},set visible(v){if(v===vis)return;vis=v;mats.forEach((mm,fi)=>{meshes[fi].setMatrixAt(j,v?mm:ZERO);meshes[fi].instanceMatrix.needsUpdate=true;});if(mir){mir.dead=!v;mir.glass.visible=v&&!mir.live;}}};});
+    meshes.forEach(im=>im.instanceMatrix.needsUpdate=true);}
+  // a thrown piece in flight is drawn whole
+  const _furn=furniture;furniture=function(t,k){if(typeof t==='string'&&t.startsWith('m_'))return furnitureMesh(t.slice(2));return _furn(t,k);};
+}
+
+// ---- painted cards: every card of one picture is drawn in one go
+const CARDS={};
+function card(tex,x,y,z,ry,w,h,o){o=o||{};const key=tex+'|'+(o.uv||'')+'|'+(o.tint||'')+'|'+(o.ds?1:0)+(o.solid?1:0);
+  const C=(CARDS[key]=CARDS[key]||{tex,o,list:[]});C.list.push([x,y,z,ry,w,h,o.rx||0]);return {C,j:C.list.length-1};}
+function flushCards(){const m4=new THREE.Matrix4(),q=new THREE.Quaternion(),e=new THREE.Euler(0,0,0,'YXZ'),v=new THREE.Vector3(),sc=new THREE.Vector3();
+  for(const k in CARDS){const C=CARDS[k],g=new THREE.PlaneGeometry(1,1);
+    if(C.o.uv){const [u0,u1]=C.o.uv,a=g.attributes.uv.array;for(let i=0;i<a.length;i+=2)a[i]=u0+a[i]*(u1-u0);}
+    const im=new THREE.InstancedMesh(g,mmat(C.tex,C.o.tint||0xffffff,{alpha:!C.o.solid,clamp:true,side:C.o.ds?1:0}),C.list.length);
+    C.list.forEach((c,j)=>{e.set(c[6],c[3],0);q.setFromEuler(e);m4.compose(v.set(c[0],c[1],c[2]),q,sc.set(c[4],c[5],1));im.setMatrixAt(j,m4);});
+    im.instanceMatrix.needsUpdate=true;im.receiveShadow=true;im.computeBoundingSphere();scene.add(im);C.mesh=im;delete CARDS[k];}}
+// hide or show one card later (a lamp picked up, a doll that moves)
+function cardShow(h,v){const im=h.C.mesh;if(!im)return;const c=h.C.list[h.j],m4=new THREE.Matrix4();
+  if(v)m4.compose(new THREE.Vector3(c[0],c[1],c[2]),new THREE.Quaternion().setFromEuler(new THREE.Euler(c[6],c[3],0,'YXZ')),new THREE.Vector3(c[4],c[5],1));else m4.makeScale(0,0,0);
+  im.setMatrixAt(h.j,m4);im.instanceMatrix.needsUpdate=true;}
+M.cardShow=cardShow;
+const NRM={n:[0,-1],s:[0,1],w:[-1,0],e:[1,0]},ryOf=(nx,nz)=>Math.atan2(nx,nz);
+const roomAtK=(k,x,z)=>M.rooms.find(r=>r.k===k&&x>=r.X0&&x<r.X1&&z>=r.Z0&&z<r.Z1);
+// ---- windows: every third cell along the outside walls (none behind the porch and balcony, none into the conservatory)
+function winList(L){const out=[];
+  for(const k of [1,2,3]){
+    for(let x=HX0+2;x<HX1-1;x+=3)for(const [z,f] of [[HZ0,'n'],[HZ1-1,'s']]){if(k<3&&f==='s'&&x>=34&&x<=42)continue;if(k===1&&f==='n'&&x>=34&&x<=42)continue;if(!L[k].solid[idx(x,z)])continue;out.push({k,x,z,f});}
+    for(let z=HZ0+2;z<HZ1-1;z+=3)for(const [x,f] of [[HX0,'w'],[HX1-1,'e']]){if(!L[k].solid[idx(x,z)])continue;out.push({k,x,z,f});}}
+  // inside, the space under a window and its curtains stays clear of furniture
+  for(const w of out){const s=w.k<3?.45:.1,dp=w.k<3?.55:.4;let a;
+    if(w.f==='n')a=[w.x-s,HZ0+1,w.x+1+s,HZ0+1+dp];else if(w.f==='s')a=[w.x-s,HZ1-1-dp,w.x+1+s,HZ1-1];else if(w.f==='w')a=[HX0+1,w.z-s,HX0+1+dp,w.z+1+s];else a=[HX1-1-dp,w.z-s,HX1-1,w.z+1+s];
+    M.occ.push({k:w.k,a,soft:1});}
+  return out;}
+function curtainOf(r){if(!r)return null;const z=r.zone,id=r.id;
+  if(r.k===1){if(id==='hall')return 'curtains_black';if(z==='ent'||id==='study')return 'curtains_red';if(z==='wet')return 'curtains_lace';return null;}
+  if(r.k===2){if(id==='mbed')return 'curtains_red';if(z==='circ')return 'curtains_black';if(z==='fam'||z==='wet')return 'curtains_lace';}
+  return null;}
+// ---- doors: every leaf stands open, folded back flat against the wall inside the room it swings into
+const STAFFR=new Set(['back','svc','sstairs','gunroom','pantry','scul','store','land','spine','cnorth','closet']);
+function doorLeaves(L){const out=[];
+  const isW=(k,x,z)=>inWorld(x,z)&&L[k].solid[idx(x,z)]&&L[k].kind[idx(x,z)]===K.WALL,free=(k,x,z)=>inWorld(x,z)&&!L[k].solid[idx(x,z)]&&stA[idx(x,z)]<0;
+  for(const D of M.doorCells){const k=D.k,c0=D.cells[0],c1=D.cells[D.cells.length-1];if(!c0)continue;
+    const alongX=isW(k,c0[0]-1,c0[1])||isW(k,c1[0]+1,c1[1]);
+    // which side it swings into: indoors; a room before a corridor; never onto a stair
+    const side=s=>{const x=alongX?c0[0]:c0[0]+s,z=alongX?c0[1]+s:c0[1];if(!free(k,x,z))return -9;const r=roomAtK(k,x,z),inn=inHouse(x,z)||(r&&r.id==='cons');return (inn?4:0)+(r&&r.zone!=='circ'?2:0)+(r?1:0)+(s>0?.1:0);};
+    const s=side(1)>=side(-1)?1:-1;if(side(s)<0)continue;
+    const off=D.cells.length>1,ext=D.kind==='ext',fr=D.kind==='french',offh=k===1&&(D.a==='cloak'||D.b==='cloak');
+    const ra=roomAtK(k,alongX?c0[0]:c0[0]+s,alongX?c0[1]+s:c0[1]);
+    let tex='f_door_family_0';if(ext&&D.a==='hall')tex='f_front_double_doors_2';else if(fr)tex='f_window_sash_0';
+    else if(k===0||k===3||ext||D.kind==='staff'||STAFFR.has(D.a)||STAFFR.has(D.b)||(ra&&(ra.zone==='work'||ra.zone==='staff')))tex='f_door_staff_0';
+    const h=ext&&D.a==='hall'?2.25:2.2,w=off?.98:.92,ry=alongX?ryOf(0,s):ryOf(s,0);
+    const hinges=off?[-1,1]:[-1,1].filter((d,i,a)=>{const x=d<0?(alongX?c0[0]-1:c0[0]):(alongX?c1[0]+1:c1[0]),z=d<0?(alongX?c0[1]:c0[1]-1):(alongX?c1[1]:c1[1]+1);
+      const fx=alongX?x:x+s,fz=alongX?z+s:z;return isW(k,x,z)&&free(k,fx,fz);}).slice(0,1);
+    for(const d of hinges){let along=d<0?(alongX?c0[0]:c0[1])-w/2-.02:(alongX?c1[0]:c1[1])+1+w/2+.02;
+      const plane=(alongX?c0[1]:c0[0])+(s>0?1:0),lean=offh?.24:.035,rx=offh?-.19:0;
+      const x=alongX?along:plane+s*lean,z=alongX?plane+s*lean:along,y=LVY[k]+(offh?1.08:h/2+.01);
+      out.push({k,tex,x,y,z,ry,w,h,rx,uv:ext&&D.a==='hall'?(d<0?[0,.5]:[.5,1]):null});
+      const a=alongX?[along-w/2-.05,s>0?plane:plane-.4,along+w/2+.05,s>0?plane+.4:plane]:[s>0?plane:plane-.4,along-w/2-.05,s>0?plane+.4:plane,along+w/2+.05];M.occ.push({k,a,soft:1,leaf:out.length-1});}}
+  return out;}
+function dressOpenings(L){
+  for(const w of M.wins){const [nx,nz]=NRM[w.f],cx=w.x+.5,cz=w.z+.5,ox=cx+nx*.5,oz=cz+nz*.5,ix=cx-nx*.5,iz=cz-nz*.5,ry=ryOf(nx,nz),Y=LVY[w.k];
+    if(w.k<3)card('f_window_sash_0',ox+nx*.02,Y+1.55,oz+nz*.02,ry,1.05,2.1,{tint:0xd8d4cc});
+    else{const D=.7,Wd=1.4,H=2.3,yc=Y+.15+H/2;card('f_window_dormer_0',ox+nx*D,yc,oz+nz*D,ry,Wd,H,{tint:0xc8c8c8});
+      for(const sg of [-1,1]){const lx=-nz*sg,lz=nx*sg;card('f_window_dormer_1',ox+nx*D/2+lx*Wd/2,yc,oz+nz*D/2+lz*Wd/2,ryOf(lx,lz),D,H,{tint:0xc8c8c8});}}
+    const inx=w.x-nx,inz=w.z-nz;if(!inWorld(inx,inz)||L[w.k].solid[idx(inx,inz)])continue;const r=roomAtK(w.k,inx,inz);if(!r)continue;
+    if(w.k<3){card('f_window_sash_0',ix-nx*.02,Y+1.55,iz-nz*.02,ry+Math.PI,1.05,2.1);const c=curtainOf(r);if(c)card('f_'+c+'_0',ix-nx*.1,Y+1.55,iz-nz*.1,ry+Math.PI,1.8,2.8);}
+    else card('f_window_sash_0',ix-nx*.02,Y+1.45,iz-nz*.02,ry+Math.PI,.75,1.5);}
+  // cellar windows at the foot of the walls, between the ground-floor windows
+  M.wins.filter(w=>w.k===1).forEach((w,i)=>{if(i%2)return;const [nx,nz]=NRM[w.f],lx=Math.abs(nz),lz=Math.abs(nx),px=w.x+.5+lx*1.5,pz=w.z+.5+lz*1.5;
+    const c1=[Math.floor(px-lx*.5),Math.floor(pz-lz*.5)],c2=[Math.floor(px+lx*.5),Math.floor(pz+lz*.5)];
+    if(![c1,c2].every(([x,z])=>inWorld(x,z)&&L[1].solid[idx(x,z)]&&L[0].solid[idx(x,z)]))return;
+    if(w.f==='s'&&px>32&&px<45)return;if(w.f==='w'&&pz>26&&pz<33)return;if(w.f==='n'&&((px>24&&px<31)||(px>33&&px<44)))return;
+    card('f_window_cellar_0',px+nx*.53,.32,pz+nz*.53,ryOf(nx,nz),.8,1.0,{tint:0xa8a49c});});
+  card('f_lord_cellar_door_0',38.965,LVY[0]+1.16,35.5,-Math.PI/2,1.0,2.3); // the Lord's iron-bound door, shut
+}
+// ---- paintings and wall mirrors
+function hang(p){const [w,h,cy,kind,own]=HANG[p.n],Y=LVY[p.k],nx=Math.sin(p.ry),nz=Math.cos(p.ry);
+  let wx=(p.a[0]+p.a[2])/2,wz=(p.a[1]+p.a[3])/2;
+  if(p.sd==='n')wz=p.a[1]-.04;else if(p.sd==='s')wz=p.a[3]+.04;else if(p.sd==='w')wx=p.a[0]-.04;else wx=p.a[2]+.04;
+  const at=o=>[wx+nx*o,Y+cy,wz+nz*o];
+  if(kind==='d'){card('f_'+p.n+'_0',...at(.03),p.ry,w,h);return;}
+  if(kind==='L'){const sc=p.n==='wall_sconce',dp=sc?.28:.27,lx=Math.cos(p.ry),lz=-Math.sin(p.ry),[x,y,z]=at(.03);
+    card('f_'+p.n+'_0',x,y,z,p.ry,w,h);card('f_'+p.n+'_1',wx+nx*(dp/2+.02),y,wz+nz*(dp/2+.02),p.ry+Math.PI/2,dp,h,{ds:1});
+    const fx=sc?-.07:0,fy=(.5-(sc?.17:.25))*h;
+    addSrc({k:p.k,x:wx+nx*.2+lx*fx,y:y+fy,z:wz+nz*.2+lz*fx,type:'gas',col:sc?0xffc890:0xffbe80,I:sc?1.15:1.0,R:sc?7:6.5,glow:[[0,0,0,.42]]});return;}
+  if(kind==='p'){card('p_'+p.n,...at(.03),p.ry,w,h,{solid:1,tint:0xd0c8bc});M.paintings.push({n:p.n,k:p.k,x:wx,z:wz,ry:p.ry,cand:PORTRAITS.includes(p.n),landing:!!p.landing});
+    if(!own){const t=.075,col=p.n.startsWith('portrait')?0x6e5222:0x3a2416,X=Math.abs(nz)>.5,[x,y,z]=at(.025);
+      for(const [du,dv,su,sv] of [[0,h/2+t/2,w+2*t,t],[0,-h/2-t/2,w+2*t,t],[w/2+t/2,0,t,h],[-w/2-t/2,0,t,h]])M.frames.push([x+(X?du:0),y+dv,z+(X?0:du),X?su:.05,sv,X?.05:su,col]);}
+    return;}
+  // a mirror: the frame with its glass cut out, and the glass just behind it
+  card('f_'+p.n+'_0',...at(.03),p.ry,w,h);const [u0,v0,u1,v1]=DECO[p.n].glass,oval=/oval/.test(p.n),gw=(u1-u0)*w,gh=(v1-v0)*h,du=((u0+u1)/2-.5)*w,dv=(.5-(v0+v1)/2)*h;
+  const g=glassMesh(p.n,gw,gh,oval),[x,y,z]=at(.018);g.position.set(x+Math.cos(p.ry)*du,y+dv,z-Math.sin(p.ry)*du);g.rotation.y=p.ry;scene.add(g);addMirror(p.n,p.k,g,p.ry,gw,gh,oval);}
+// ---- light: gas on every floor (sconces, brackets, chandeliers), oil lamps that burn on their own
+M.src=[];M.oil=[];M.gas=[1,1,1,1];M.valves=[];
+const GL={pos:[],size:[],col:[],own:[]};
+function addSrc(s){s.lvl=1;s.goal=1;s.ph=Math.random()*20;s.t0=0;s.glowAt=[];
+  for(const [dx,dy,dz,sz] of s.glow){s.glowAt.push(GL.pos.length/3);GL.pos.push(s.x+dx,s.y+dy,s.z+dz);GL.size.push(sz);GL.col.push(0,0,0);GL.own.push(M.src.length);}
+  M.src.push(s);return s;}
+function crossCard(tex,x,y,z,w,h,ry){return [card(tex,x,y,z,ry||0,w,h,{ds:1}),card(tex,x,y,z,(ry||0)+Math.PI/2,w,h,{ds:1})];}
+const OILL={oil_lamp:[.17,.57,.3],servant_table_lamp:[.14,.45,.25],handheld_oil_lamp:[.18,.4,.36]};
+function oilLamp(n,k,x,y,z,lit,ry){const [w,h,ft]=OILL[n],hd=crossCard('f_'+n+'_0',x,y+h/2,z,w,h,ry);
+  const o={n,k,x,y,z,lit,cards:hd};if(lit)o.src=addSrc({k,x,y:y+h*(1-ft),z,type:'oil',col:0xff9a50,I:.75,R:5,glow:[[0,0,0,.3]]});M.oil.push(o);return o;}
+function dressLights(list){const R=(()=>{let s=31;return ()=>(s=(s*16807)%2147483647)/2147483647;})();
+  // on the furniture: oil lamps on side tables, nightstands and desks; candelabra on the dining table and sideboards; candlesticks by the servants' beds
+  for(const p of list){if(HANG[p.n]||p.y)continue;const F=FURN[p.n];if(!F)continue;const top=LVY[p.k]+F.d[2]*(TOPF[p.n]||1),cx=(p.a[0]+p.a[2])/2,cz=(p.a[1]+p.a[3])/2,plain=p.k===0||p.k===3;
+    if(p.n==='dining_table'){const ax=p.a[2]-p.a[0]>p.a[3]-p.a[1];for(const s of [-.6,.6])crossCard('f_candelabra_0',cx+(ax?s:0),top+.22,cz+(ax?0:s),.22,.45);continue;}
+    if(p.n==='sideboard'){crossCard('f_candelabra_0',cx,top+.22,cz,.22,.45,p.ry);continue;}
+    if(['parlor_side_table','nightstand','servant_nightstand','servant_side_table','study_desk','kitchen_work_table','journal_desk'].includes(p.n)){
+      if(p.n==='servant_nightstand'&&R()<.5){crossCard('f_servant_candlestick_0',cx,top+.1,cz,.1,.2);continue;}
+      if(R()<.35)continue;oilLamp(plain||p.n==='kitchen_work_table'?'servant_table_lamp':'oil_lamp',p.k,cx,top,cz,R()<.75,p.ry);}}
+  // hand lamps: three set down on the floor on every level, against a wall, out of the way
+  for(let k=0;k<4;k++){const rs=M.rooms.filter(r=>r.k===k&&r.id!=='lord'&&r.id!=='balcony'&&r.id!=='cons');let put=0;
+    for(let t=0;t<80&&put<3;t++){const r=rs[Math.floor(R()*rs.length)],ix0=r.X0+1,iz0=r.Z0+1,ix1=r.X1===HX1?r.X1-1:r.X1,iz1=r.Z1===HZ1?r.Z1-1:r.Z1;
+      const x=R()<.5?ix0+.25:ix1-.25,z=iz0+.4+R()*(iz1-iz0-.8),i=idx(Math.floor(x),Math.floor(z));if(LEVELS[k].solid[i]||stA[i]>=0)continue;
+      if(list.some(p=>!HANG[p.n]&&x>p.a[0]-.2&&x<p.a[2]+.2&&z>p.a[1]-.2&&z<p.a[3]+.2))continue;if(M.oil.some(o=>o.k===k&&Math.hypot(o.x-x,o.z-z)<4))continue;
+      oilLamp('handheld_oil_lamp',k,x,LVY[k],z,R()<.8,R()*6);put++;}}
+  // gas chandeliers over the grand rooms
+  for(const [k,id,pts] of [[1,'ballroom',[[38.5,17],[38.5,21.5]]],[1,'hall',[[39,32.5]]],[1,'dining'],[1,'drawing'],[1,'library'],[2,'mbed']]){const r=M.rooms.find(q=>q.k===k&&q.id===id);if(!r)continue;
+    for(const [x,z] of pts||[[(r.X0+1+(r.X1===HX1?r.X1-1:r.X1))/2,(r.Z0+1+(r.Z1===HZ1?r.Z1-1:r.Z1))/2]]){const h=1.15,w=.75,top=LVY[k]+3.0;crossCard('f_chandelier_0',x,top-h/2,z,w,h);
+      const fy=top-h*.36,g=[[0,.02,0,1.4]];for(let a=0;a<5;a++)g.push([Math.cos(a*1.2566)*.33,0,Math.sin(a*1.2566)*.33,.22]);
+      addSrc({k,x,y:fy,z,type:'gas',col:0xffd09a,I:1.5,R:9,glow:g,chand:1});}}
+  // the note by the front door
+  {const c=document.createElement('canvas');c.width=512;c.height=700;const g=c.getContext('2d');g.fillStyle='#d9cdb0';g.fillRect(0,0,512,700);
+    for(let i=0;i<2600;i++){g.fillStyle=`rgba(${90+R()*60|0},${70+R()*40|0},40,${R()*.08})`;g.fillRect(R()*512,R()*700,2+R()*8,2+R()*8);}
+    const gr=g.createRadialGradient(256,350,120,256,350,430);gr.addColorStop(0,'rgba(0,0,0,0)');gr.addColorStop(1,'rgba(70,45,15,.45)');g.fillStyle=gr;g.fillRect(0,0,512,700);
+    g.fillStyle='#2a1c12';g.font='italic 31px Georgia, "Times New Roman", serif';
+    const lines=['To whoever comes after,','','The gas will not hold.','When the lamps die on a floor,','go down to the boiler room.','There is a valve for every floor.','Turn it until the hiss returns.','','Keep an oil lamp by you,','and do not let it go out.','','',''];
+    lines.forEach((l,i)=>g.fillText(l,44,78+i*42));g.font='italic 36px Georgia, serif';g.fillText('A. W.',330,640);
+    const t=new THREE.CanvasTexture(c);t.anisotropy=4;const m=new THREE.Mesh(new THREE.PlaneGeometry(.34,.46),new THREE.MeshLambertMaterial({map:t}));m.position.set(36.4,1.5,36.965);m.rotation.set(0,Math.PI,.04);scene.add(m);M.note=m;}
+  // the gas valves in the boiler room: one wheel for each floor, on the manifold along the south wall
+  {const red=lam(0x6e1a12),iron=lam(0x2a2826),Y=LVY[0],zw=37,names=['CELLAR','GROUND','UPPER','ATTIC'];
+    const hdr=new THREE.Mesh(new THREE.CylinderGeometry(.05,.05,4.4,10),iron);hdr.rotation.z=Math.PI/2;hdr.position.set(30.7,Y+2.55,zw-.09);scene.add(hdr);
+    names.forEach((nm,i)=>{const x=29.2+i*1.0;const p=new THREE.Mesh(new THREE.CylinderGeometry(.04,.04,2.55,10),iron);p.position.set(x,Y+1.27,zw-.09);scene.add(p);
+      const wh=new THREE.Group(),rim=new THREE.Mesh(new THREE.TorusGeometry(.17,.022,8,22),red);wh.add(rim);for(const a of [0,Math.PI/2]){const sp=new THREE.Mesh(new THREE.BoxGeometry(.34,.025,.025),red);sp.rotation.z=a;wh.add(sp);}
+      const hub=new THREE.Mesh(new THREE.CylinderGeometry(.04,.04,.08,10),iron);hub.rotation.x=Math.PI/2;wh.add(hub);wh.position.set(x,Y+1.3,zw-.2);scene.add(wh);
+      const c=document.createElement('canvas');c.width=256;c.height=64;const g=c.getContext('2d');g.fillStyle='#8a7444';g.fillRect(0,0,256,64);g.strokeStyle='#3a2a12';g.lineWidth=6;g.strokeRect(3,3,250,58);
+      g.fillStyle='#2a1c0c';g.font='bold 38px Georgia, serif';g.textAlign='center';g.fillText(nm,128,46);
+      const pl=new THREE.Mesh(new THREE.PlaneGeometry(.36,.09),new THREE.MeshLambertMaterial({map:new THREE.CanvasTexture(c)}));pl.position.set(x,Y+.95,zw-.02);pl.rotation.y=Math.PI;scene.add(pl);
+      M.valves.push({k:i,x,y:Y+1.3,z:zw-.2,wheel:wh});});}
+  buildGlow();buildRig();}
+// the flames' glow: one cloud of soft points, each lit by its own lamp
+function buildGlow(){const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(GL.pos,3));g.setAttribute('size',new THREE.Float32BufferAttribute(GL.size,1));
+  g.setAttribute('color',new THREE.Float32BufferAttribute(GL.col,3));
+  const m=new THREE.ShaderMaterial({uniforms:{sc:{value:600}},transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,
+    vertexShader:'attribute float size;attribute vec3 color;varying vec3 vC;uniform float sc;void main(){vC=color;vec4 mv=modelViewMatrix*vec4(position,1.);gl_PointSize=min(256.,size*sc/-mv.z);gl_Position=projectionMatrix*mv;}',
+    fragmentShader:'varying vec3 vC;void main(){vec2 c=gl_PointCoord-.5;float d=length(c)*2.;float a=pow(max(0.,1.-d),2.2)+.6*pow(max(0.,1.-d*2.6),3.);gl_FragColor=vec4(vC*a,1.);}'});
+  const p=new THREE.Points(g,m);p.frustumCulled=false;p.renderOrder=5;scene.add(p);GL.pts=p;}
+// real lights: a few that follow the nearest lamps on your floor, fading over as you move (High 10, Medium 6, Low 4)
+const RIG={L:[],n:0};
+function buildRig(){const n=OPT.gfx==='high'?10:OPT.gfx==='med'?6:4;if(RIG.n===n)return;for(const l of RIG.L)scene.remove(l.l);RIG.L=[];RIG.n=n;
+  for(let i=0;i<n;i++){const l=new THREE.PointLight(0xffc080,0,6,2);scene.add(l);RIG.L.push({l,s:null,f:0});}
+  scene.traverse(o=>{if(o.material)(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.needsUpdate=true);});}
+function flick(s,t){if(s.type==='oil')return .86+.07*Math.sin(t*9.1+s.ph)+.05*Math.sin(t*23.7+s.ph*2)+.02*Math.sin(t*41+s.ph);
+  return .97+.025*Math.sin(t*13+s.ph)*Math.sin(t*2.3+s.ph);}
+// gas on a floor goes out (sputtering, lamp by lamp) or comes back (each bracket catching in turn)
+function setGas(k,on){M.gas[k]=on?1:0;const t=performance.now()/1000;for(const s of M.src)if(s.type==='gas'&&s.k===k){s.goal=on?1:0;s.t0=t+Math.random()*(on?.9:.7);}}
+M.setGas=setGas;
+let LT=performance.now()/1000;
+function lightTick(){requestAnimationFrame(lightTick);if(!M.on||!GL.pts)return;const t=performance.now()/1000,dt=Math.min(.1,t-LT);LT=t;
+  buildRig();const sc=renderer.domElement.height/(2*Math.tan(camera.fov*Math.PI/360));GL.pts.material.uniforms.sc.value=sc;
+  // each source's level: steady, sputtering out, or catching again
+  for(const s of M.src){if(s.lvl===s.goal&&!s.sp)continue;if(t<s.t0)continue;const u=t-s.t0;
+    if(s.goal===0){if(u<1.3){s.sp=1;s.lvl=(Math.random()<.45?.15:1)*(1-u/1.6);}else{s.sp=0;s.lvl=0;}}
+    else{if(u<.5){s.sp=1;s.lvl=u<.12?1.3:(Math.random()<.3?.4:u/.5);}else{s.sp=0;s.lvl=1;}}}
+  const col=GL.pts.geometry.attributes.color,ca=col.array,_c=new THREE.Color();
+  for(let i=0;i<GL.own.length;i++){const s=M.src[GL.own[i]],f=s.lvl*flick(s,t);_c.setHex(s.col);const b=(s.type==='oil'?1.6:1.8)*f;ca[i*3]=_c.r*b;ca[i*3+1]=_c.g*b*.92;ca[i*3+2]=_c.b*b*.8;}
+  col.needsUpdate=true;
+  // which lamps get a real light: on your floor, lit, nearest first (chandeliers count as a little nearer)
+  const cp=camera.position,k=[0,1,2,3].reduce((a,i)=>cp.y>LVY[i]+.3?i:a,0);
+  const want=M.src.filter(s=>s.k===k&&s.lvl>.03&&Math.abs(s.x-cp.x)<18&&Math.abs(s.z-cp.z)<18).map(s=>[s,Math.hypot(s.x-cp.x,s.y-cp.y,s.z-cp.z)-(s.chand?3:0)]).sort((a,b)=>a[1]-b[1]).slice(0,RIG.n).map(a=>a[0]);
+  for(const L of RIG.L){const keep=L.s&&want.includes(L.s);L.f=Math.max(0,Math.min(1,L.f+(keep?dt*3:-dt*5)));if(!keep&&L.f===0)L.s=null;}
+  for(const s of want){if(RIG.L.some(L=>L.s===s))continue;const L=RIG.L.find(L=>!L.s);if(!L)break;L.s=s;L.f=0;L.l.position.set(s.x,s.y,s.z);L.l.color.setHex(s.col);L.l.distance=s.R;}
+  for(const L of RIG.L)L.l.intensity=L.s?L.s.I*L.s.lvl*flick(L.s,t)*L.f:0;}
+requestAnimationFrame(lightTick);
+
+// ---- mirrors: the nearest one or two you're looking at show a true reflection (High: two, Medium: one, Low: the painted glass)
+function addMirror(n,k,glass,ry,w,h,oval){const m={n,k,glass,ry,w,h,oval,live:null,dead:false,nx:Math.sin(ry),nz:Math.cos(ry)};M.mirrors.push(m);return m;}
+const RP=[];let RBUSY=false;
+function reflector(oval){const r=new THREE.Reflector(oval?new THREE.CircleGeometry(.5,40):new THREE.PlaneGeometry(1,1),{clipBias:.003,textureWidth:512,textureHeight:512,color:0x8a9094});
+  const ob=r.onBeforeRender;r.onBeforeRender=function(...a){if(RBUSY)return;RBUSY=true;try{ob.apply(this,a);}finally{RBUSY=false;}};r.visible=false;scene.add(r);return r;}
+const _cd=new THREE.Vector3();
+function reflTick(){if(!M.on||!M.mirrors.length||!THREE.Reflector)return;
+  const want=OPT.gfx==='high'?2:OPT.gfx==='med'?1:0,cp=camera.position,k=[0,1,2,3].reduce((a,i)=>cp.y>LVY[i]+.3?i:a,0);camera.getWorldDirection(_cd);
+  const pick=want?M.mirrors.filter(m=>{if(m.dead||m.k!==k)return false;const p=m.glass.position,dx=cp.x-p.x,dz=cp.z-p.z,d=Math.hypot(dx,dz);m._d=d;
+    return d<14&&(dx*m.nx+dz*m.nz)>.15&&(-dx*_cd.x-dz*_cd.z)/(d||1)>.15;}).sort((a,b)=>a._d-b._d).slice(0,want):[];
+  for(const m of M.mirrors)if(m.live&&!pick.includes(m)){m.live.visible=false;m.live.userData.m=null;m.live=null;m.glass.visible=!m.dead;}
+  for(const m of pick){if(m.live)continue;const key=m.oval?'o':'r';let r=RP.find(q=>q.userData.kind===key&&!q.userData.m);
+    if(!r){r=reflector(m.oval);r.userData.kind=key;RP.push(r);}
+    r.userData.m=m;m.live=r;const p=m.glass.position;r.position.set(p.x+m.nx*.002,p.y,p.z+m.nz*.002);r.rotation.set(0,m.ry,0);r.scale.set(m.w,m.h,1);r.visible=true;m.glass.visible=false;}}
+setInterval(()=>{try{reflTick();}catch(e){}},120);
+M.card=card;
+
+// ---- preview: no waves, nobody but you
+setInterval(()=>{if(!M.on||!M.preview||!WS)return;WS.toSpawn=0;if(WS.bossQ)WS.bossQ.length=0;for(const z of WS.zs.slice())simKill(WS,z);if(WS.ph==='w'){WS.ph='b';}WS.t=9999;},200);
+
+/* ================= THE MAP ROLL =================
+   Each run picks its map at random, never the one played last (with two maps they take turns). The host rolls it when the run
+   starts; it rides in every snapshot (mp), so everyone in the squad builds the same house, and a new host after a migration keeps it.
+   Swapping is two-way: each map's grid, lists and scene objects are put away whole and brought back, so the house is only built once. */
+const MAPS=['c','m'],SNAP={};let MAPCUR='c';
+const TAS=()=>[solid0,kind0,solid1,kind1,floor1,bld,stA,stBase,stLen,stStart,stSign,doorCell,winCell,links,links2];
+const ARRS=()=>[PORCH,DOORS,DOORSTATE,WINDOWS,WINSTATE,JUMP_WIN,PROPS,PROPSTATE,INTER,SPAWNS,SPAWN_PTS,PROPMESH,PROPVIS];
+function capture(){return {ta:TAS().map(a=>a.slice()),lv:LEVELS.slice(),roof:roofAt,arr:ARRS().map(a=>a.slice()),bnd:Object.assign({},BND)};}
+function restore(C){TAS().forEach((a,i)=>a.set(C.ta[i]));for(let k=0;k<LEVELS.length;k++)LEVELS[k]=C.lv[k];roofAt=C.roof;
+  ARRS().forEach((a,i)=>{a.length=0;for(const v of C.arr[i])a.push(v);});Object.assign(BND,C.bnd);}
+function setMap(mp){if(mp===MAPCUR||!MAPS.includes(mp))return;
+  if(mp==='m'){SNAP.c=capture();
+    if(!SNAP.m){const before=new Set(scene.children);M.on=false;swap();M.mObjs=scene.children.filter(o=>!before.has(o));SNAP.m=capture();}
+    else{restore(SNAP.m);for(const o of M.culObjs)scene.remove(o);for(const o of M.mObjs)scene.add(o);for(const r of RP)scene.add(r);M.on=true;}}
+  else{SNAP.m=capture();M.on=false;
+    for(const o of M.mObjs)scene.remove(o);for(const L of RIG.L)scene.remove(L.l);RIG.L=[];RIG.n=0;
+    for(const m of M.mirrors)if(m.live){m.live.visible=false;m.live.userData.m=null;m.live=null;m.glass.visible=!m.dead;}for(const r of RP)scene.remove(r);
+    restore(SNAP.c);for(const o of M.culObjs)scene.add(o);}
+  MAPCUR=mp;
+  // the lights in the scene changed: every material recompiles once, and High's shadow materials follow the new objects
+  if(typeof SHADOW!=='undefined'&&SHADOW.on){swapMats(scene,true);shadowSetup();}
+  scene.traverse(o=>{if(o.material)(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.needsUpdate=true);});}
+function pickMap(){const h=location.hash;if(M.preview)return 'm';const f=h.match(/map=([cm])/);if(f)return f[1];
+  let last=null;try{last=localStorage.getItem('lastlight-map');}catch(e){}
+  const opts=MAPS.filter(x=>x!==last),mp=opts[(Math.random()*opts.length)|0];try{localStorage.setItem('lastlight-map',mp);}catch(e){}return mp;}
+// the host rolls the map as the run starts, before the world's lists are sized to it
+{const _ssr=simStartRun;simStartRun=function(W,squad,diff,perma,coin){const mp=pickMap();setMap(mp);_ssr(W,squad,diff,perma,coin);W.map=mp;};}
+{const _pw=packW;packW=function(W){const s=_pw(W);s.mp=W.map||MAPCUR;return s;};}
+{const _aw=adoptW;adoptW=function(S,pr){if(S&&S.mp)setMap(S.mp);const W=_aw(S,pr);W.map=(S&&S.mp)||MAPCUR;return W;};}
+// everyone else follows the snapshot's map
+{const _os=onSnapshot;onSnapshot=function(s){if(s&&s.mp&&s.mp!==MAPCUR)setMap(s.mp);return _os(s);};}
+M.setMap=setMap;M.map=()=>MAPCUR;
+// the map's name as the run opens
+{const _er=enterRun;enterRun=function(s){_er(s);if(!M.preview)setTimeout(()=>toast(MAPCUR==='m'?'The Mansion':'The Cul-de-sac',''),400);};}
+// on the mansion's drive you start facing the house
+{const _rl=resetLoadout;resetLoadout=function(spawn,keepPos){_rl(spawn,keepPos);if(MAPCUR==='m'&&!keepPos){P.yaw=0;}};}
+if(M.preview){try{setMap('m');}catch(e){console.error('mansion',e);}}
+M.swap=swap;return M;
+})();
+
 };
 </script>
 <script type="module">
@@ -7419,6 +8025,7 @@ function skinWraithTrue(){
    Lights are drawn by the old (r128-r164 "legacy") rules so every intensity in the game keeps its meaning:
    each light counts pi times what the new physical units would, and fades out linearly to its range instead of by the inverse square. */
 import * as T from 'three';
+import {Reflector} from 'three/addons/objects/Reflector.js';
 const C=T.ShaderChunk;let ok=true;
 const sub=(name,a,b)=>{const s=C[name];if(typeof s!=='string'||s.split(a).length!==2){ok=false;return;}C[name]=s.replace(a,b);};
 sub('lights_pars_begin','vec3 irradiance = ambientLightColor;','vec3 irradiance = ambientLightColor * PI;');
@@ -7429,7 +8036,7 @@ sub('lights_pars_begin','vec3 irradiance = mix( hemiLight.groundColor, hemiLight
 {const s=C.lights_pars_begin,i=s.indexOf('float getDistanceAttenuation'),j=s.indexOf('return distanceFalloff;',i),e=j<0?-1:s.indexOf('}',j);
  if(i<0||e<0)ok=false;else C.lights_pars_begin=s.slice(0,i)+'float getDistanceAttenuation( const in float lightDistance, const in float cutoffDistance, const in float decayExponent ) {\n\tif ( cutoffDistance > 0.0 && decayExponent > 0.0 ) {\n\t\treturn pow( saturate( - lightDistance / cutoffDistance + 1.0 ), decayExponent );\n\t}\n\treturn 1.0;\n}'+s.slice(e+1);}
 if(!ok)console.warn('Last Light: lighting compatibility patch did not fully apply; lights may look different');
-window.THREE=Object.assign({},T);
+window.THREE=Object.assign({Reflector},T);
 // the bloom: the same r128 glow the game was tuned with (the newer one spreads bright spots wider)
 /* three.js r128 examples (MIT): Pass, CopyShader, LuminosityHighPassShader, UnrealBloomPass */
 ( function () {
