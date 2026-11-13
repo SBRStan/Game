@@ -529,8 +529,10 @@ const ZT=[
   {name:'Dog',hpx:.6,spd:3.0,dmg:15,sx:1,sy:1,arm:1},
   {name:'Wendigo',hpx:1,spd:1,dmg:50,sx:.9,sy:1.45,arm:1.55},
   {name:'Banshee',hpx:.01,spd:0,dmg:0,sx:.85,sy:1.02,arm:1},
-  {name:'Djinn',hpx:.01,spd:0,dmg:0,sx:1,sy:1.4,arm:1}
+  {name:'Djinn',hpx:.01,spd:0,dmg:0,sx:1,sy:1.4,arm:1},
+  {name:'Lord',hpx:1,spd:0,dmg:40,sx:1.05,sy:1.04,arm:1.3}
 ];
+let LORD_HURT=null,LORD_BAR=null; // the mansion's finale boss (type 8) takes its hits, and draws its bar, through these
 /* ---- version 3: the things that aren't zombies ---- */
 const OMEN_AT=4,OMEN_LEN=1.8;                                   // wave 7: every player's double in the treeline
 const BANSHEE_AT=[18,28],BANSHEE_COMB=[5,8],BANSHEE_KEEN=3,BANSHEE_RISE_AT=2,BANSHEE_RISERS=3,BANSHEE_LINGER=1.5,BANSHEE_RANGE=45;
@@ -942,7 +944,7 @@ function simKill(W,z){
   const killer=z.last,boss=isBoss(z.type);
   if(killer){
     const k=z.lastK;
-    const r=z.type===5?REWARD.boss*3:(boss||z.type===6||z.type===7)?REWARD.boss:(k===KD.KNIFE?REWARD.knife:(k===KD.HEAD||k===KD.SGH)?REWARD.head:REWARD.body);
+    const r=z.type===5||z.type===8?REWARD.boss*3:(boss||z.type===6||z.type===7)?REWARD.boss:(k===KD.KNIFE?REWARD.knife:(k===KD.HEAD||k===KD.SGH)?REWARD.head:REWARD.body);
     W.earned[killer]=(W.earned[killer]||0)+r;
     const st=statOf(W,killer);st[0]++;if(k===KD.HEAD||k===KD.SGH)st[1]++;if(k===KD.KNIFE)st[2]++;
     for(const p in z.hitters){if(p===killer)continue;W.earned[p]=(W.earned[p]||0)+(boss?REWARD.bossAssist:REWARD.assist);statOf(W,p)[3]++;} // an assist for everyone else who hurt it
@@ -955,6 +957,7 @@ function simKill(W,z){
 function simDamage(W,z,d,key,kind){
   if(!v3Vuln(z,kind))return;
   if(z.type===5){wendigoHurt(W,z,d,key,kind);return;}
+  if(z.type===8&&LORD_HURT){LORD_HURT(W,z,d,key,kind);return;}
   z.hp-=d;z.lock=Math.max(z.lock,6);
   if(key){z.last=key;z.lastK=kind;z.hitters[key]=1;}
   if(z.hp<=0){if(!key&&!z.last)z.last=null;simKill(W,z);}
@@ -971,6 +974,7 @@ function simApplyHits(W,key,hz){
     const id=+k.slice(1),z=W.zs.find(q=>q.id===id);if(!z)continue;
     if(!v3Vuln(z,kind))continue; // the banshee and the djinn shrug off hits outside their open moments
     if(z.type===5){wendigoHurt(W,z,d,key,kind);continue;}
+    if(z.type===8&&LORD_HURT){LORD_HURT(W,z,d,key,kind);continue;}
     z.hp-=d;z.last=key;z.lastK=kind;z.kd=[kind,v[2]|0,v[3]|0];if(kind===KD.KNIFE&&z.type<=3&&z.hp>0&&(z.arms|0)!==3&&Math.random()<MELEE_ARM)z.arms=(z.arms|0)|((z.arms|0)&1?2:(z.arms|0)&2?1:Math.random()<.5?1:2);z.hitters[key]=1;z.lock=Math.max(z.lock,8);simLegHit(z,d,kind);
     if((kind===KD.SGB||kind===KD.SGH)&&isBoss(z.type)){z.stag=.4;z.atk=0;}
     if(z.hp<=0)simKill(W,z);
@@ -1164,9 +1168,9 @@ function simStep(W,dt,players){
   W.seen=W.seen||{};for(const p of players)W.seen[p.key]=W.time;
   W.dl=W.dl||{};for(const p of players){const dead=!p.alive&&!p.downed&&p.dw===W.wave&&!(W.tkd&&W.tkd[p.key]===W.wave);
     if(dead&&W.dl[p.key]==='a')statOf(W,p.key)[4]++;if(p.alive||p.downed)W.dl[p.key]='a';else if(dead)W.dl[p.key]='d';} // deaths for the end screen
-  W.life=W.life||{};for(const p of players)if(p.ru!=null)W.life[p.key]=[p.dw==null?-1:p.dw,p.ru,p.alive?1:0,Math.round(p.hp||0),p.gn||'']; /* respawns and sit-out wave survive a page reload */
+  W.life=W.life||{};for(const p of players)if(p.ru!=null)W.life[p.key]=[p.dw==null?-1:p.dw,p.ru,p.alive||p.mir?1:0,Math.round(p.hp||0),p.gn||'']; /* respawns and sit-out wave survive a page reload */
   const missing=Object.keys(W.roster).some(k=>{if(players.some(p=>p.key===k))return false;const gone=W.time-(W.seen[k]??W.time),lf=W.life[k];return gone<10||(lf&&lf[2]===1&&gone<45);}); /* a player last seen on their feet gets 45 s: a stalled connection mustn't end the run while they're still fighting */
-  if(players.length&&!alive.length&&!missing&&!players.some(p=>W.wave===9&&W.tkd[p.key]===9)){W.st=2;W.win=0;simStartReplay(W);return;}
+  if(players.length&&!alive.length&&!missing&&!players.some(p=>(W.wave===9&&W.tkd[p.key]===9)||p.mir)){ /* someone trapped in a mirror is still in it */W.st=2;W.win=0;simStartReplay(W);return;}
   if(W.ph!=='w'){W.t-=dt;if(W.ph==='b')sitOutPick(W,players);if(W.t<=0)simStartWave(W);}
   else{
     W.waveT+=dt;W.spawnT-=dt;
@@ -1250,6 +1254,7 @@ function simZombie(W,z,dt,alive){
   if(z.type===5){simWendigo(W,z,dt,alive);return;}
   if(z.type===6){simBanshee(W,z,dt);return;}
   if(z.type===7)return; // the djinn moves in stepDjinn
+  if(z.type===8)return; // the Lord moves in the mansion's own step
   if(z.rise>0){z.rise-=dt;return;} // still climbing out of the ground
   if(z.spell){z.atk=0;z.bash=0;z.run=0;z.face+=Math.sin(W.time*1.3+z.id)*dt*.4;return;} // spellbound: swaying in place, harmless, easy to put down
   if(z.poss&&v3GuardHold(W,z,dt,alive))return;
@@ -2087,7 +2092,7 @@ function sendPresence(){
   if(mode!=='squad'||!groom||ME.cs<0)return;
   const rp=realPos(),Q=netState();
   const gh=P.ghost;
-  const pr={cs:ME.cs,fl:FL.on?1:0,bk:P.bk,jt:ME.jt,rid:ME.rid,run:P.run||0,a:!gh&&P.alive&&inGame()?1:0,hp:gh?0:Math.ceil(P.hp||0),dw:gh?(gh.st==='dead'?gh.wave:-1):P.deathWave==null?-1:P.deathWave,mu:P.dream?1:0,ws:P.ws,ar:P.ghost?0:Math.ceil(P.armor||0),gs:P.ghost?1:0,cb:P.cb,dc:P.ghost?'d':(!P.alive&&!P.downed?P.deathCause||'':''),ru:P.respawnsUsed||0,gn:Object.keys(P.weapons||{}).join(','),
+  const pr={cs:ME.cs,fl:FL.on?1:0,bk:P.bk,lq:P.lq,jt:ME.jt,rid:ME.rid,run:P.run||0,a:!gh&&P.alive&&inGame()?1:0,hp:gh?0:Math.ceil(P.hp||0),dw:gh?(gh.st==='dead'?gh.wave:-1):P.deathWave==null?-1:P.deathWave,mu:P.dream?1:0,ws:P.ws,ar:P.ghost?0:Math.ceil(P.armor||0),gs:P.ghost?1:0,cb:P.cb,dc:P.ghost?'d':(!P.alive&&!P.downed?P.deathCause||'':''),ru:P.respawnsUsed||0,gn:Object.keys(P.weapons||{}).join(','),
     x:Math.round((rp.x||0)*100),y:Math.round((rp.y||0)*100),z:Math.round((rp.z||0)*100),vl:P.dream?0:VOICE.level,vo:VOICE.on?1:0,dn:(P.ghost?P.ghost.st==='down':P.downed)?1:0,fr:P.fr,tk:P.taken?1:0,yw:Math.round((P.yaw||0)*1000),pt:Math.round((P.pitch||0)*1000),
     w:ORDER.indexOf(Q.cur),sh:P.shotSeq||0,cr:P.crouch?1:0,hz:P.hz,ph:P.phz,pv:P.pv,cq:Q.cq,cl:P.claims,sp:Q.spent||0,ab:Q.ab,rv:P.rv,rh:P.reviveT>0?1:0,rl:P.reloadT>0?1:0,ad:P.ads>.5?1:0,sp:P.sprinting?1:0,ac:[P.acN||0,P.acK||''],ow:(P.weapons.glock?1:0)|(P.weapons.sawn?2:0)|(P.weapons.ak?4:0),cu:P.cu,dq:Q.dq,dh:P.dh,wh:P.wh,vt:P.vote,rp:P.rpv||null,
     rl:P.reloadT>0?1:0,sup:P.cur==='glock'&&P.weapons.glock&&P.weapons.glock.sup?1:0,ex:P.ex,nm:P.nm,cy:P.cy,
@@ -2165,6 +2170,10 @@ canvas.addEventListener('mousedown',e=>{
 window.addEventListener('mouseup',e=>{if(e.button===0)P.firing=false;if(e.button===2)mouseAim=false;lookDrag=null;});
 canvas.addEventListener('wheel',e=>{if(inGame()&&!shopFor&&P.alive)cycleWeapon(e.deltaY>0?1:-1);},{passive:true});
 /* ---- remappable controls: every action has a keyboard key and a controller button, saved in this browser ---- */
+// which controller family is in your hands: PlayStation pads get their own button names in every prompt
+let padKind='xbox';
+function padN(i){if(i===99)return padKind==='ps'?'L1 + R1':'LB + RB';const n=PADN[i];if(!n)return 'Button '+i;const [x,p]=n.split(' / ');return padKind==='ps'&&p?p:x;}
+function padBtn(id){return padN(BIND.pad[id]);}
 const PADNAME=i=>i===99?'LB + RB / L1 + R1':(PADN[i]||('Button '+i));
 const PADN=['A / Cross','B / Circle','X / Square','Y / Triangle','LB / L1','RB / R1','LT / L2','RT / R2','View / Share','Menu / Options','L3','R3','D-pad up','D-pad down','D-pad left','D-pad right'];
 const ACTS=[ // id, label, keyboard default, controller default (null = not bindable there)
@@ -2313,7 +2322,7 @@ function pollPad(dt){
   const B=BIND.pad;
   const dz=v=>Math.abs(v)<.15?0:(v-Math.sign(v)*.15)/.85;
   const ax=gp.axes,lx=dz(ax[0]||0),ly=dz(ax[1]||0),rx=dz(ax[2]||0),ry=dz(ax[3]||0);
-  if(gp.buttons.some((x,i)=>b(i))||Math.abs(lx)+Math.abs(ly)+Math.abs(rx)+Math.abs(ry)>0){lastInput='pad';$('padNote').textContent='Controller connected: '+gp.id.replace(/\(.*\)/,'').trim().slice(0,48);}
+  if(gp.buttons.some((x,i)=>b(i))||Math.abs(lx)+Math.abs(ly)+Math.abs(rx)+Math.abs(ry)>0){lastInput='pad';padKind=/054c|playstation|dualshock|dualsense/i.test(gp.id)?'ps':'xbox';$('padNote').textContent='Controller connected: '+gp.id.replace(/\(.*\)/,'').trim().slice(0,48);}
   if(press(PAD.MENU)&&inGame()){paused?resume():openPause();}
   if(press(B.score)&&inGame())toggleScore();
   if(press(B.mates)&&inGame()&&!shopFor)toggleMates();
@@ -2692,7 +2701,7 @@ function onSnapshot(s){
     else if(P.ghost&&P.ghost.st==='down'){P.ghost=null;dreamEnd();P.hp=50;P.lastHit=now;P.spent+=Math.floor(credits()*REVIVED_PENALTY);toast('Revived','Back on your feet at half health');SFX.revive();}}
   for(const k in stationEnd)if(!(s.cd||{})[k])delete stationEnd[k];
   for(const k in s.cd||{})stationEnd[k]=now+s.cd[k]/10;
-  if(s.w!==lastWaveSeen&&s.ph==='w'){toast('Wave '+s.w,'Supply open this wave: Building '+s.sa);SFX.waveStart();}
+  if(s.w!==lastWaveSeen&&s.ph==='w'){toast('Wave '+s.w,'Supply open this wave: '+bLabel(s.sa));SFX.waveStart();}
   if(s.ph==='b'&&lastPhSeen==='w'){toast('Wave '+s.w+' cleared','All supply stations open');SFX.cleared();}
   lastWaveSeen=s.ph==='w'?s.w:lastWaveSeen;lastPhSeen=s.ph;
   v2Snapshot(s);
@@ -2730,6 +2739,7 @@ function nearInteract(){
   return null;
 }
 const stationOpen=b=>!S||S.ph!=='w'||S.sa===b;
+function bLabel(b){return 'Building '+b;} // which supply is which: the mansion names its floors instead
 function usePress(){
   if(!inGame())return;
   if(!P.alive){tryRespawn();return;}
@@ -2741,7 +2751,7 @@ function usePress(){
     const p=PRICE[it.w];if(credits()<p){SFX.deny();toast('','Need '+p+' credits');return;}
     P.spent+=p;P.weapons[it.w]={mag:WEAP[it.w].mag,res:maxRes(it.w)};switchTo(it.w);SFX.buy();toast('',WEAP[it.w].name+' bought');updateSlots();
   }else if(it.type==='station'){
-    if(!stationOpen(it.b)){SFX.deny();toast('','Supply open this wave: Building '+S.sa);return;}
+    if(!stationOpen(it.b)){SFX.deny();toast('','Supply open this wave: '+bLabel(S.sa));return;}
     openShop(it);
   }else if(it.type==='opt'||it.type==='sup'){v2WallBuy(it);
   }else if(it.type==='door'){
@@ -2758,7 +2768,7 @@ $('shopClose').addEventListener('click',closeShop);
 function lockLeft(key){return Math.max(0,(stationEnd[key]||0)-now);}
 function renderShop(){
   const it=shopFor;if(!it)return;
-  $('shopTitle').textContent='Supply · Building '+it.b;$('shopCred').textContent=fmt(credits())+' CR';
+  $('shopTitle').textContent='Supply · '+bLabel(it.b);$('shopCred').textContent=fmt(credits())+' CR';
   const rows=[],cr=credits();
   for(const w of ORDER){
     const s=P.weapons[w];if(!s)continue;const W_=WEAP[w],[hp,fp]=AMMO_PRICE[W_.cal],cd=lockLeft(it.b+W_.cal),mx=maxRes(w),full=s.res>=mx;
@@ -2901,7 +2911,7 @@ function toast(big,small){$('toastB').textContent=big;$('toastS').textContent=sm
 function showClassCard(){
   const c=myClass();if(c===undefined)return;const C=CLASSES[c];
   $('ccName').textContent=C.name;$('ccPassive').textContent=C.passive;
-  const keyName=lastInput==='pad'?'D-pad up':isTouch?'the lightning button':'X';
+  const keyName=lastInput==='pad'?padBtn('ability'):isTouch?'the lightning button':'X';
   if(c===2&&P.gren<3)P.gren=3;
   $('ccAbility').textContent=c===0?C.ability+' Costs '+fmt(C.cost)+'. Press '+keyName+'.':c===1?C.ability+' Costs '+fmt(C.cost)+'. Hold Use on their body.':C.ability;
   $('ccAbility').hidden=!C.ability;$('classCard').classList.add('show');cardT=7;
@@ -2933,17 +2943,17 @@ function updateHUD(){
     setText('hSquad',OPT.mates===false?'':rows.join(''));
   }else setText('hSquad','');
   // prompt
-  const verb=lastInput==='pad'?'Hold (X)':isTouch?'USE':'[F]';
+  const verb=lastInput==='pad'?'Hold ('+padBtn('use')+')':isTouch?'USE':'[F]';
   const rc=reviveCandidate(),pr=$('prompt');let t='',off=false;
   const fv=v3FreeCandidate()||v3FakeCandidate();
-  if(fv){t=(lastInput==='pad'?'(X)':isTouch?'USE':'[F]')+' Wake '+csName(fv.cs);}
-  else if(v3CombNear()){t=(lastInput==='pad'?'(X)':isTouch?'USE':'[F]')+' Take the silver comb';}
-  else if(rc){t=(credits()>=CLASSES[1].cost?(lastInput==='pad'?'Hold (X)':isTouch?'Hold USE':'Hold [F]')+' · Use Adrenaline on '+csName(rc.cs)+' · '+fmt(CLASSES[1].cost):'Use Adrenaline on '+csName(rc.cs)+' · needs '+fmt(CLASSES[1].cost));off=credits()<CLASSES[1].cost;}
+  if(fv){t=(lastInput==='pad'?'('+padBtn('use')+')':isTouch?'USE':'[F]')+' Wake '+csName(fv.cs);}
+  else if(v3CombNear()){t=(lastInput==='pad'?'('+padBtn('use')+')':isTouch?'USE':'[F]')+' Take the silver comb';}
+  else if(rc){t=(credits()>=CLASSES[1].cost?(lastInput==='pad'?'Hold ('+padBtn('use')+')':isTouch?'Hold USE':'Hold [F]')+' · Use Adrenaline on '+csName(rc.cs)+' · '+fmt(CLASSES[1].cost):'Use Adrenaline on '+csName(rc.cs)+' · needs '+fmt(CLASSES[1].cost));off=credits()<CLASSES[1].cost;}
   else{
     const it=(shopFor||!P.alive)?null:nearInteract();
     if(it){
       if(it.type==='wall'){const W_=WEAP[it.w],p=PRICE[it.w];t=P.weapons[it.w]?W_.name+' · owned. Restock at a supply station.':credits()>=p?verb+' Buy '+W_.name+' · '+p+' CR':W_.name+' · '+p+' CR · you have '+fmt(credits());off=!P.weapons[it.w]&&credits()<p;}
-      else if(it.type==='station'){if(stationOpen(it.b))t=verb+' Open supply · Building '+it.b;else{t='Supply offline · open now: Building '+S.sa;off=true;}}
+      else if(it.type==='station'){if(stationOpen(it.b))t=verb+' Open supply · '+bLabel(it.b);else{t='Supply offline · open now: '+bLabel(S.sa);off=true;}}
       else if(it.type==='opt'||it.type==='sup'){const r=v2WallPrompt(it,verb);t=r[0];off=r[1];}
       else if(it.type==='door'){const st=DOORSTATE[it.door.id],gar=it.door.kind==='garage';t=st===2?(gar?'Garage door wrecked':'Door smashed'):verb+(st===1?' Open':' Close')+(gar?' garage door · it creaks':' door');off=st===2;}
       else if(it.type==='crate'){const u=it.u;t=u.used[myKey()]!==undefined?'Crate · already taken':verb+' Take supplies'+(u.hp<=0?' · wrecked':u.hp<CRATE_DAMAGED*100?' · damaged':'');off=u.used[myKey()]!==undefined;}
@@ -2969,7 +2979,7 @@ function updateHUD(){
     else if(canRespawn())note='Your respawn is ready ('+(respawnsMax(S.d)-P.respawnsUsed)+' left).';
     else if(S.ea&&S.ea.s===myKey()&&S.ea.w===P.deathWave)note='The banshee and the djinn took more than one of you. You are the one who sits out wave '+(P.deathWave+1)+'; the others can come back now.';
     else note=P.deathWave===9?'You can return at the break before wave 10.':'You can return at the break after wave '+(P.deathWave+1)+'.';
-    $('specNote').textContent=note+(tgt?(lastInput==='pad'?' A / RB next player, LB back.':isTouch?' Tap to switch players.':' Click or → for the next player, right-click or ← to go back.'):'');
+    $('specNote').textContent=note+(tgt?(lastInput==='pad'?' '+padN(PAD.A)+' / '+padN(PAD.RB)+' next player, '+padN(PAD.LB)+' back.':isTouch?' Tap to switch players.':' Click or → for the next player, right-click or ← to go back.'):'');
     $('btnRespawn').hidden=!canRespawn();
     if(canRespawn()&&document.pointerLockElement)document.exitPointerLock(); // free the cursor so the button can be clicked
   }else spec.hidden=true;
@@ -3108,7 +3118,7 @@ function renderRatio(){const dpr=window.devicePixelRatio||1,auto=OPT.gfx==='low'
   sync();
 })();
 const openOpt=from=>{optReturn=from;$('scrOpt').classList.toggle('mobView',inGame()?isTouch:(isTouch||touchDev));for(const s of SCREENS)$(s).hidden=s!=='scrOpt';};
-const openCtl=from=>{ctlReturn=from;for(const s of SCREENS)$(s).hidden=s!=='scrCtl';renderCtl(lastInput==='pad'?'xbox':isTouch?'touch':'kbm');};
+const openCtl=from=>{ctlReturn=from;for(const s of SCREENS)$(s).hidden=s!=='scrCtl';renderCtl(lastInput==='pad'?(padKind==='ps'?'ps':'xbox'):isTouch?'touch':'kbm');};
 const backTo=id=>{for(const s of SCREENS)$(s).hidden=s!==id;};
 $('btnOptT').addEventListener('click',()=>openOpt('scrTitle'));$('btnOptL').addEventListener('click',()=>openOpt('scrLobby'));$('btnOptP').addEventListener('click',()=>openOpt('scrPause'));
 $('btnCtlT').addEventListener('click',()=>openCtl('scrTitle'));$('btnCtlP').addEventListener('click',()=>openCtl('scrPause'));$('btnOptCtl').addEventListener('click',()=>openCtl('scrOpt'));
@@ -3130,6 +3140,8 @@ const CTL=[
   ['Claymore (Demolitions)','T','D-pad down','D-pad down','Cycle button picks it, then Throw'],
   ['Class ability','X','D-pad up','D-pad up','Lightning button'],
   ['Thermal optic','Aim with one fitted','LT','L2','AIM'],
+  ['Oil lamp: pick up / set down (mansion)','F','X','Square','USE'],
+  ['Oil lamp: throw the one you carry','Left mouse','RT','R2','Bullet buttons'],
   ['Supply menu','Mouse','D-pad, A, B','D-pad, Cross, Circle','Tap'],
   ['Scoreboard (toggle)','Tab','View','Share / Touchpad','List button, top right'],
   ['Mute mic (GitHub link)','M','—','—','—'],
@@ -3328,7 +3340,7 @@ function localPlayer(dt){
   else if(P.oob){P.oob=0;$('oobMsg').hidden=true;$('oobVig').style.opacity=0;}
   if(now-P.lastHit>REGEN_DELAY&&P.hp<100&&P.alive){
     let mult=1;if(S&&S.c)for(const p in RM){const r=RM[p];if(r.alive&&r.inRun&&S.c[r.key]===1&&Math.hypot(r.x-P.x,r.z-P.z)<MEDIC_AURA){mult=2;break;}}
-    P.hp=Math.min(100,P.hp+REGEN_RATE*mult*dt/(S&&P.wrTouched===S.w?1.5:1)); // the wraith's cold lingers: healing takes 1.5x as long for the rest of the wave
+    P.hp=Math.min(100,P.hp+REGEN_RATE*mult*dt/(S&&P.wrTouched===S.w?1.5:1)*(P.wound>0||P.slowRegen?.5:1)); // the wraith's cold lingers: healing takes 1.5x as long for the rest of the wave
   }
   if(shopFor){const d=Math.hypot(P.x-shopFor.x,P.z-shopFor.z);if(d>2.4||!stationOpen(shopFor.b))closeShop();}
   const dr=nearDrop();
@@ -3815,7 +3827,7 @@ function thermLights(){ // every light but the even sky and ambient fill goes da
   return THQ.lights;}
 function v2Render(){
   if(!inGame()&&thermalOn){thermalOn=false;$('scope').style.opacity=0;}
-  const want=[thermalOn?'url(#thermPal)':'',FX_FILTER,OPT.bright&&OPT.bright!==100?'brightness('+(OPT.bright/100)+')':''].filter(Boolean).join(' ');if(canvas.style.filter!==want)canvas.style.filter=want;
+  const want=[thermalOn?'url(#thermPal)':'',FX_FILTER,MAP_FILTER,OPT.bright&&OPT.bright!==100?'brightness('+(OPT.bright/100)+')':''].filter(Boolean).join(' ');if(canvas.style.filter!==want)canvas.style.filter=want;
   if(!thermalOn){mainRender();return;}
   // pass 1: the world, flat and cold (the canvas filter strips the colour)
   const bg=scene.background.getHex(),fc=scene.fog.color.getHex(),fd=scene.fog.density,mo=moon.visible,ra=rain.visible,so=starMat.visible,hi=hemi.intensity,ai=amb.intensity;
@@ -3905,10 +3917,11 @@ function treelineSpot(far){ // a walkable point among the trees, away from the l
   }
   return [8,45];
 }
+let CURMAP='c';const onCul=()=>CURMAP==='c'; // the map in play (the map roll keeps it up to date) // the wraith and the omen belong to the cul-de-sac alone
 function v3StartWave(W){
   const w=W.wave;W.doom=null;W.comb=null;W.wt=null;W.wtDone=0;
   if(w===3){W.bsAt=rr(BANSHEE_AT);}
-  if(w===4){const k=pickA(W.order.length?W.order:['?']);W.wr={k,st:0,x:0,y:0,z:0,drain:0,tf:-1,nextTf:15};W.wrDead=0;} // wave 4 belongs to the wraith
+  if(w===4&&onCul()){const k=pickA(W.order.length?W.order:['?']);W.wr={k,st:0,x:0,y:0,z:0,drain:0,tf:-1,nextTf:15};W.wrDead=0;} // wave 4 belongs to the wraith
   if(w===6)W.djAt=rr(DJINN_AT);
   if(w===9)W.tkAt=rr(TAKE_AT);
   if(w===10){W.tk=null;if(W.hour>10)W.forceStorm=1;
@@ -3923,7 +3936,7 @@ function v3Step(W,dt,alive,players){
   // events key off time or progress, whichever comes first, so a fast squad still meets them
   const info=waveInfo(wv,W.n,W.diff),left=(W.toSpawn+W.bossQ.length+W.zs.filter(z=>isReg(z.type)||isBoss(z.type)).length)/Math.max(1,info.count);
   // wave 7 opener: every player's double stands in the treeline for one lightning flash
-  if(wv===7&&inWave&&!W.omDone&&t>=OMEN_AT){
+  if(wv===7&&inWave&&!W.omDone&&t>=OMEN_AT&&onCul()){
     W.omDone=1;W.omT=OMEN_LEN+3*Object.keys(W.roster).length;const c=centroid(alive); /* they stand there, then go one by one, every 3 s */
     // stand them where the most players can actually see them
     let best=null,bs=-1e9;
@@ -3938,9 +3951,9 @@ function v3Step(W,dt,alive,players){
   if(wv===3&&inWave&&!W.bsDone&&t>=4&&(t>=W.bsAt||left<=.6)){W.bsDone=1;spawnBanshee(W,alive);}
   if(W.bsLinger>0)W.bsLinger-=dt;
   if(W.wr){if(!inWave||wv!==4)W.wr=null;else stepWraith(W,dt,alive);}
-  if(wv===6&&inWave&&!W.dj&&!W.djDone&&(t>=W.djAt||left<=.6)&&alive.length){W.djDone=1;startDjinn(W,alive);}
+  if(wv===6&&inWave&&onCul()&&!W.dj&&!W.djDone&&(t>=W.djAt||left<=.6)&&alive.length){W.djDone=1;startDjinn(W,alive);}
   if(W.dj){if(!inWave||wv!==6)endDjinn(W);else stepDjinn(W,dt,alive);}
-  if(wv===9&&inWave&&!W.tkDone&&(t>=W.tkAt||left<=.6)){if(!W.tkStart)W.tkStart=t;tryTake(W,alive);}
+  if(wv===9&&inWave&&onCul()&&!W.tkDone&&(t>=W.tkAt||left<=.6)){if(!W.tkStart)W.tkStart=t;tryTake(W,alive);}
   if(W.tk&&W.tk.st===1){W.tk.t-=dt;if(W.tk.t<=0)W.tk.st=2;}
   if(wv===10&&inWave&&!W.wdSpawned&&t>=3)spawnWendigo(W,alive);
   stepMimic(W,dt,alive,players);
@@ -4255,8 +4268,8 @@ function stepMimic(W,dt,alive,players){
 function v3Hold(W){
   if(W.wave===3){if(!W.bsDone||W.zs.some(z=>z.type===6))return true; /* she has to be killed */ }
   if(W.wave===4&&W.wr&&!W.wrDead&&(W.wr.st===0||(W.wr.ht||0)<25))return true; // the wraith has to hunt a while, unless someone kills it
-  if(W.wave===6&&(!W.djDone||W.dj))return true; // so does the djinn
-  if(W.wave===9&&(!W.tkDone||(W.tk&&W.tk.st===1)))return true;
+  if(W.wave===6&&onCul()&&(!W.djDone||W.dj))return true; // so does the djinn
+  if(W.wave===9&&onCul()&&(!W.tkDone||(W.tk&&W.tk.st===1)))return true;
   if(W.wave===10&&!W.wdSpawned)return true;
   return false;
 }
@@ -4268,7 +4281,7 @@ function v3Flags(z){
 function v3OnKill(W,z){
   if(z.type===7){for(const q of W.zs){q.poss=0;q.guardT=null;}W.dj=null;return;}
   if(z.type===6){W.doom=null;W.comb=null;W.bsEndT=W.bsEndT||W.waveT;if(z.bst==='keen'){W.bsLinger=z.kt*BANSHEE_LINGER;W.bsPos=[z.x,z.z];}return;}
-  if(z.type===5){for(const q of W.zs.slice())removeEntity(W,q);W.toSpawn=0;W.bossQ=[];W.wd=null;}
+  if(z.type===5||z.type===8){for(const q of W.zs.slice())removeEntity(W,q);W.toSpawn=0;W.bossQ=[];W.wd=null;}
 }
 function v3Pack(W){
   const r1=v=>Math.round(v*10),x={f:(W.omDone?1:0)|(W.bsDone?2:0)|(W.djDone?4:0)|(W.tkDone?8:0)|(W.wdSpawned?16:0)};
@@ -4309,7 +4322,7 @@ function v3Adopt(W,S){
 const V3={omShown:0,omMeshes:[],omT:0,wrMesh:null,wrKey:null,glimpse:null,glimpses:[],wave3Start:0,bsKeenSnd:null,dis:0,
   djMesh:null,djVis:0,echoT:6,tkMesh:null,tkBody:null,tkBodyKey:'',sight:null,sightWave:-1,sightRoll:0,thermT:0,mmPlayed:{},
   lastHostTick:0,whisperT:0,scrapeT:0,muffle:null,hasFaint:false,hasCold:false,tags:{},lastWave:-1,lastPh:''};
-let FX_FILTER='',DZ=[];
+let FX_FILTER='',MAP_FILTER='',DZ=[]; // MAP_FILTER: a map's own tint on the view (the mansion's mirror-glass)
 const realPos=()=>P.dream&&P.dreamReal?P.dreamReal:P;
 const HX=()=>(S&&S.x)||{};
 Object.assign(P,{ws:{n:0},cb:{n:0},fr:{n:0},taken:false,tkDrag:0,dream:false,dreamReal:null,dreamHp:100,dreamCr:0,dnApplied:0,chill:0});
@@ -4928,7 +4941,7 @@ function v3Clear(){
 /* ---- scoreboard: a toggle, so you can keep moving and shooting with it up ---- */
 let scoreOn=false,scoreT=0;
 function toggleMates(){OPT.mates=OPT.mates===false;saveOpt();if($('oMates'))$('oMates').checked=OPT.mates;toast('',OPT.mates?'Teammate info on':'Teammate info off');}
-function toggleScore(){scoreOn=!scoreOn;if(scoreOn){$('classCard').classList.remove('show');cardT=0;}$('score').hidden=!scoreOn;scoreT=0;$('scoreHint').textContent=(lastInput==='pad'?'View button':isTouch?'Tap the list button':'Tab')+' to hide';}
+function toggleScore(){scoreOn=!scoreOn;if(scoreOn){$('classCard').classList.remove('show');cardT=0;}$('score').hidden=!scoreOn;scoreT=0;$('scoreHint').textContent=(lastInput==='pad'?padBtn('score')+' button':isTouch?'Tap the list button':'Tab')+' to hide';}
 function renderScore(dt){
   if(!scoreOn||!S)return;scoreT-=dt;if(scoreT>0)return;scoreT=.25;
   const rows=['<tr><th>Player</th><th>Health</th><th>Armor</th><th>Credits</th><th>Kills</th><th>Heads</th></tr>'],ro=S.ro||{},k=myKey(),x=S.x||{};
@@ -4954,7 +4967,7 @@ function renderBossBar(){
   if(S&&inGame()&&!P.dream){
     const info=waveInfo(S.w,S.n,S.d),x=S.x||{};
     for(const id in CZ){
-      const c=CZ[id];if(c.dying||c.hidden||!(c.type===5||c.type===6||c.type===7)||!c.m.g.visible)continue;
+      const c=CZ[id];if(c.dying||c.hidden||!(c.type===5||c.type===6||c.type===7||c.type===8)||!c.m.g.visible)continue;
       const top=c.y+(c.type===5?3.4:c.type===7?2.7:2.3);
       const dx=c.x-camera.position.x,dy=top-camera.position.y,dz=c.z-camera.position.z,d=Math.hypot(dx,dy,dz)||1;
       if(d>45)continue;camera.getWorldDirection(_fw);if((dx*_fw.x+dy*_fw.y+dz*_fw.z)/d<.25)continue;
@@ -4965,7 +4978,8 @@ function renderBossBar(){
       if(!el){el=BOSSBARS[id]=document.createElement('div');el.className='bossbar';el.innerHTML='<b></b><div class="bar"><i></i></div>';document.body.appendChild(el);
         el.querySelector('b').textContent=c.type===5?'Wendigo':c.type===6?'Banshee':'Djinn';}
       const max=c.type===5?((x.wd&&x.wd[1])||c.hp):c.type===6?Math.round(info.hp*5):Math.round(info.hp*10);
-      if(c.type===5&&c.col){el.querySelector('b').textContent='Heart of ice';el.querySelector('i').style.width=((x.wd&&x.wd[3])||0)+'%';}
+      if(c.type===8&&LORD_BAR)LORD_BAR(c,el);
+      else if(c.type===5&&c.col){el.querySelector('b').textContent='Heart of ice';el.querySelector('i').style.width=((x.wd&&x.wd[3])||0)+'%';}
       else{if(c.type===5)el.querySelector('b').textContent='Wendigo';el.querySelector('i').style.width=Math.max(0,Math.min(100,(c.hp-c.pending)/max*100)).toFixed(1)+'%';}
       el.style.left=((_v.x+1)/2*innerWidth)+'px';el.style.top=((1-_v.y)/2*innerHeight)+'px';
     }
@@ -4988,6 +5002,7 @@ let lastRAF=performance.now();
 /* ================= PROXIMITY VOICE (GitHub build) =================
    Mic audio goes straight between players over WebRTC. Each listener hears teammates from where they stand,
    keeps short clips of what they heard, and the wendigo (and the djinn) play those clips back. */
+let VOICE_MUFFLE=null; // (remote) => true when glass stands between you and them
 const VOICE={on:false,stream:null,track:null,muted:false,level:0,levelHold:0,an:null,abuf:null,calls:{},remotes:{},snips:{},bus:null,boundRoom:null,callT:0};
 function voiceAvailable(){return transport==='peer'&&!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia);}
 function voiceBus(){if(!AC)return null;if(!VOICE.bus){VOICE.bus=AC.createGain();VOICE.bus.gain.value=1.4*(OPT.vvol??100)/100;VOICE.bus.connect(master);}return VOICE.bus;}
@@ -5024,7 +5039,7 @@ function attachRemote(id,stream){
     r.el=new Audio();r.el.srcObject=stream;r.el.muted=true;r.el.play().catch(()=>{}); // Chrome needs the stream attached to play through WebAudio
     r.src=AC.createMediaStreamSource(stream);r.gain=AC.createGain();r.pan=AC.createPanner();
     Object.assign(r.pan,{panningModel:'HRTF',distanceModel:'linear',refDistance:2,maxDistance:25,rolloffFactor:1});
-    r.src.connect(r.gain);r.gain.connect(r.pan);r.pan.connect(voiceBus());
+    r.lp=AC.createBiquadFilter();r.lp.type='lowpass';r.lp.frequency.value=20000;r.src.connect(r.gain);r.gain.connect(r.lp);r.lp.connect(r.pan);r.pan.connect(voiceBus());
     // keep the last three seconds so loud and calm phrases can be clipped out
     r.ring=new Float32Array(Math.round(AC.sampleRate*3));r.w=0;r.cap=null;r.quiet=0;
     r.sp=AC.createScriptProcessor(4096,1,1);const z=AC.createGain();z.gain.value=0;r.src.connect(r.sp);r.sp.connect(z);z.connect(AC.destination);
@@ -5080,6 +5095,7 @@ function voiceTick(dt){
       else if(P.dream&&V3.fk&&V3.fk.key===r.key&&V3.fk.st!=='walk')g=0; // the one you're watching die can't answer you
       if(r)setPannerPos(v.pan,r.x,r.y+1.6,r.z);
     }else setPannerPos(v.pan,camera.position.x,camera.position.y,camera.position.z-1); // lobby: everyone, flat
+    const mf=inRun&&r&&VOICE_MUFFLE?VOICE_MUFFLE(r):false;if(mf)g*=.55;if(v.lp){const f=mf?520:20000;v.lp.frequency.value+=(f-v.lp.frequency.value)*Math.min(1,dt*8);}
     v.gain.gain.value+=(g-v.gain.gain.value)*Math.min(1,dt*10);
   }
   // my own loudness, which zombies close by can hear
@@ -6631,7 +6647,9 @@ function flToggle(){if(!inGame()||!P.alive||P.dream)return;
   if(!FL.on&&FL.batt<=0){toast('','Flashlight dead · batteries come in supply crates');return;}
   FL.on=!FL.on;flClick(FL.on);}
 function darkPrompt(verb,t){if(!DARK.near||reviveCandidate())return null;
-  return [(lastInput==='pad'?'Hold (X)':isTouch?'Hold USE':'Hold [F]')+' Reset the breaker · the clunk will be heard',false];}
+  return [(lastInput==='pad'?'Hold ('+padBtn('use')+')':isTouch?'Hold USE':'Hold [F]')+' '+brkVerb(),false];}
+function brkVerb(){return 'Reset the breaker · the clunk will be heard';}
+function brkDone(){return 'Power back on · and everything nearby heard it';}
 function darkTick(dt){
   if(P.run!==FL.run){FL.run=P.run;FL.batt=100;FL.on=false;FL.hint=0;P.bk={n:0,b:0,r:P.run};}
   const live=inGame()&&P.alive&&!P.dream&&!P.ghost;
@@ -6645,10 +6663,10 @@ function darkTick(dt){
   for(const B of BREAKERS){const out=!!(S&&S.bo&&S.bo[B.b]>0);B.led.material.color.setHex(out?(Math.sin(now*6)>0?0xff3020:0x501008):0x40ff70);}
   DARK.near=null;
   if(live&&P.y<1){for(const B of BREAKERS){if(!(S&&S.bo&&S.bo[B.b]>0))continue;if(Math.hypot(P.x-B.x,P.z-B.z)<1.9){DARK.near=B;break;}}}
-  if(DARK.near&&useHeld){DARK.hold+=dt;if(DARK.hold>=BRK_HOLD){DARK.hold=0;P.bk={n:(P.bk&&P.bk.n||0)+1,b:DARK.near.b,r:P.run};brkClunk();vmReach&&vmReach();toast('','Power back on · and everything nearby heard it');}}
+  if(DARK.near&&useHeld){DARK.hold+=dt;if(DARK.hold>=BRK_HOLD){DARK.hold=0;P.bk={n:(P.bk&&P.bk.n||0)+1,b:DARK.near.b,r:P.run};brkClunk();vmReach&&vmReach();toast('',brkDone());}}
   else DARK.hold=0;
   // the first time you're caught in the dark in a run, a hint
-  if(live&&!FL.hint){const b=bldAt(P.x,P.z);if(b&&S&&S.bo&&S.bo[b]>0){FL.hint=1;setTimeout(()=>toast('',(isTouch?'Torch button':lastInput==='pad'?'D-pad up':'[L]')+' for your flashlight · the breaker box brings the power back'),1400);}}
+  if(live&&!FL.hint){const b=bldAt(P.x,P.z);if(b&&S&&S.bo&&S.bo[b]>0){FL.hint=1;setTimeout(()=>toast('',(isTouch?'Torch button':lastInput==='pad'?padBtn('light'):'[L]')+' for your flashlight · the breaker box brings the power back'),1400);}}
   // touch: the torch button shows while you can use it
   const tb=$('tLight');if(tb){tb.hidden=!(isTouch&&live);tb.classList.toggle('on',FL.on);}
   // teammates' lights
@@ -6712,10 +6730,16 @@ function skGeo(key){
   for(const sd of [-1,1]){const sh=sd<0?B.shL:B.shR,el=sd<0?B.elL:B.elR,ha=sd<0?B.haL:B.haR;
     part([[handY,armW*.3,armW*.22,.03],[.86,armW*.42,armW*.3,.025],[.92,armW*.38,armW*.38,.02],[1.15,armW*.46,armW*.48,.01],[yS-.12,armW*.55,armW*.58,0],[yS,armW*.62,armW*.62,0]],
       (y)=>y>yS-.07?[[sh,.6],[B.chest,.4]]:y>.98?blend(y,1.15,el,sh,.06):blend(y,.9,ha,el,.04),10,true,true,sd*armX2);}
+  // a long skirt: one bell from the waist to the hem, swaying a little with each leg; below the hem the legs (or just the shoes) show
+  let hemY=-1;
+  if(p.skirt&&p.skirt.length>3){const sk=p.skirt.filter(r=>r[1]>=.19),hem=sk[sk.length-1][0];hemY=hem*H;
+    const rings=sk.map(r=>[r[0]*H,Math.min(.42,r[1]),Math.min(.36,r[2]),Math.max(-.08,Math.min(.08,r[3]))]);rings.push([Math.max(.03,hemY-.03),rings[rings.length-1][1]*.97,rings[rings.length-1][2]*.97,rings[rings.length-1][3]]);rings.reverse();
+    part(rings,(y,x)=>{if(y>yH-.05)return [[B.hips,1]];const t=Math.min(1,(yH-y)/yH)*.45;return [[B.hips,1-t],[x<0?B.thL:B.thR,t]];},20,false,false,0,0);}
   // legs, down to the shoes
   for(const sd of [-1,1]){const th=sd<0?B.thL:B.thR,kn=sd<0?B.knL:B.knR,ft=sd<0?B.ftL:B.ftR;
-    part([[.005,ankleW*.6,footD*.48,footZ],[.04,ankleW*.62,footD*.45,footZ*.8],[yA,ankleW*.52,shinD*.42,0],[yA+.1,ankleW*.5,shinD*.4,0],[yK,kneeW*.5,shinD*.52,.005],[yK+.1,kneeW*.52,shinD*.55,0],[yH,legW*.56,thighD/2,0]],
-      (y)=>y>yH-.06?[[th,.7],[B.hips,.3]]:y>yA+.12?blend(y,yK,kn,th,.07):blend(y,yA+.04,ft,kn,.04),10,true,false,sd*legX);}
+    let lr=[[.005,ankleW*.6,footD*.48,footZ],[.04,ankleW*.62,footD*.45,footZ*.8],[yA,ankleW*.52,shinD*.42,0],[yA+.1,ankleW*.5,shinD*.4,0],[yK,kneeW*.5,shinD*.52,.005],[yK+.1,kneeW*.52,shinD*.55,0],[yH,legW*.56,thighD/2,0]];
+    if(hemY>0){const top=hemY+.06;lr=lr.filter(r=>r[0]<top);if(lr.length<3)lr.push([top,ankleW*.5,shinD*.4,0]);else lr.push([top,lr[lr.length-1][1],lr[lr.length-1][2],0]);}
+    part(lr,(y)=>y>yH-.06?[[th,.7],[B.hips,.3]]:y>yA+.12?blend(y,yK,kn,th,.07):blend(y,yA+.04,ft,kn,.04),10,true,hemY>0,sd*legX);}
   const g=new THREE.BufferGeometry();
   g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));g.setAttribute('normal',new THREE.Float32BufferAttribute(nrm,3));
   g.setAttribute('aR',new THREE.Float32BufferAttribute(rest,3));g.setAttribute('aN',new THREE.Float32BufferAttribute(rn,3));g.setAttribute('aK',new THREE.Float32BufferAttribute(kk,1));
@@ -7494,6 +7518,8 @@ function grid(){
   // the servants' stairs: three steep flights side by side
   stairZ([22],19,21,'n',0);stairZ([24],19,21,'s',1);stairZ([23],19,21,'n',2);
   for(let z=19;z<=21;z++){stLen[idx(24,z)]=2.45;stStart[idx(24,z)]=19.2;} // the middle flight tops out half a metre early, level with the closet's staff door
+  for(let z=19;z<=21;z++){stLen[idx(22,z)]=2.65;} // the cellar flight tops out short of the north wall, where a body can actually stand
+  for(let z=19;z<=21;z++){stLen[idx(23,z)]=2.3;stStart[idx(23,z)]=21.5;} // the attic flight starts half a metre in, level with the middle flight's top step, so the horde can step across
   // storm-door steps outside the west wall, rising away from the house
   for(let x=18;x<=20;x++){const i=idx(x,29);stA[i]=2;stBase[i]=0;stLen[i]=3;stStart[i]=21;stSign[i]=-1;L[1].floor[i]=0;L[0].solid[i]=0;}
   for(const x of [18,19,20])for(const z of [28,30])wall(1,x,z,K.RAIL);
@@ -7506,6 +7532,7 @@ function grid(){
   // how the levels connect, for the horde's pathfinding: [cell, level] to [cell, level]
   const lk=[];for(let x=36;x<=40;x++)lk.push([[x,25,1],[x,24,2]]);
   lk.push([[22,19,0],[23,19,1]],[[24,21,1],[25,21,2]],[[24,21,1],[23,21,2]],[[23,19,2],[23,18,3]],[[23,19,2],[24,19,3]],[[18,29,0],[17,29,1]]);
+  findShafts(L,wall);
   return {L,lk};
 }
 
@@ -7524,7 +7551,8 @@ function swap(){
   Object.assign(BND,{x0:O,z0:O,x1:70+O,z1:50+O});
   for(let x=1;x<MW-1;x++)for(let z=1;z<MD-1;z++){if(x>=BND.x0-1&&x<BND.x1+1&&z>=BND.z0-1&&z<BND.z1+1)continue;if(!LEVELS[1].solid[idx(x,z)])SPAWNS.push([x+.5,z+.5]);}
   SPAWN_PTS.splice(0,SPAWN_PTS.length,[37.5,50.5],[40.5,50.5],[37.5,52],[40.5,52]);
-  clearCuldesac();M.occ=[{k:2,a:[36.3,23,37.7,23.5]},{k:1,a:[35.9,36.5,36.9,37]},{k:0,a:[28.5,36.3,33.2,37]}];M.frames=[];M.wins=winList(G.L);M.leaves=doorLeaves(G.L);build(G);dressOpenings(G.L);placeFurniture();flushCards();
+  clearCuldesac();BREAKERS.length=0;M.occ=[{k:2,a:[36.3,23,37.7,23.5]},{k:1,a:[35.9,36.5,36.9,37]},{k:0,a:[28.5,36.3,33.2,37]},{k:1,a:[49.9,31,51.4,32.7]}].concat(MINTER.map(it=>({k:it.layer,a:buyRect(it)})),M.shOcc||[]);M.frames=[];M.wins=winList(G.L);M.leaves=doorLeaves(G.L);for(const o of M.occ)if(o.leaf!==undefined&&(M.shOcc||[]).some(q=>q.k===o.k&&o.a[0]<q.a[2]&&o.a[2]>q.a[0]&&o.a[1]<q.a[3]&&o.a[3]>q.a[1]))M.leaves[o.leaf].gone=true; // no door left standing over a passage panel
+  build(G);dressOpenings(G.L);placeFurniture();buyPoints();shaftLook();keyBuild();armorStand();KIDS.m=KID_KEYS.map(kidMesh);flushCards();
 }
 // everything the cul-de-sac put in the world. Kept: the sky, rain, the moon and stars, pooled effects (hidden at load) and lights that start off
 function clearCuldesac(){M.culObjs=[];
@@ -7563,7 +7591,7 @@ function floorOf(r){if(!r)return ['floor_boards',2,0x8a7a68];const k=r.k,id=r.id
 function ceilOf(r){if(!r||r.k===0)return ['floor_boards',2,0x5a5046];return r.k===3?['wall_plaster',2.5,0xa09a90]:['ceiling_plaster',2.2,0xd8d2c6];}
 
 function build(G){
-  const L=G.L,F={},trim=[],steps=[],panes=[];
+  const L=G.L,F={},trim=[],btrim=[],steps=[],panes=[];
   const roomAt=(k,x,z)=>M.rooms.find(r=>r.k===k&&x>=r.X0&&x<r.X1&&z>=r.Z0&&z<r.Z1);
   // faces grouped by look; one mesh per look
   const face=(key,p,n,uv)=>{const f=F[key]||(F[key]={p:[],n:[],u:[]});for(const i of [0,1,2,0,2,3]){f.p.push(...p[i]);f.n.push(...n);f.u.push(...uv[i]);}};
@@ -7580,14 +7608,15 @@ function build(G){
           const nx=x+dx,nz=z+dz;if(isWall(k,nx,nz))continue;
           const lo=ax==='x'?z:x,hi=lo+1,inside=inHouse(nx,nz)||(k===1&&nx>=35&&nx<42&&nz>=9&&nz<14);
           if(!inside){if(k===0)continue;const t=k===3?['roof_slate_fishscale',1.2,0x9a9ea6]:['ext_clapboard_white',1.4,0xd6d2c8];quadV('X'+K_(t),t[1],ax,c,lo,hi,y0,y1,dir);continue;}
-          const r=roomAt(k,nx,nz)||roomAt(k,x,z),t=wallOf(r);quadV(K_(t),t[1],ax,c,lo,hi,y0,y1,dir);}
+          const r=roomAt(k,nx,nz)||roomAt(k,x,z),t=wallOf(r);quadV((k===0&&x===39&&z===35?'I':'')+K_(t),t[1],ax,c,lo,hi,y0,y1,dir);}
         continue;}
       const kd=lv.kind[i];
       if(lv.solid[i]&&kd===K.RAIL&&(inHouse(x,z)||roomAt(k,x,z))){const isR=(a,b)=>inWorld(a,b)&&lv.solid[idx(a,b)]&&lv.kind[idx(a,b)]===K.RAIL,stone=!inHouse(x,z);
         const ax=isR(x-1,z)||isR(x+1,z),az=isR(x,z-1)||isR(x,z+1),cr=stone?0x8f8a7e:0x3a2414,cb=stone?0x9a958a:0x4a2e1a,bw=stone?.09:.045;
         for(const al of (ax||!az?['x']:[]).concat(az?['z']:[])){const X=al==='x';
-          trim.push([x+.5,y0+.97,z+.5,X?1:.09,.07,X?.09:1,cr],[x+.5,y0+.06,z+.5,X?1:.08,.08,X?.08:1,cr]);
-          for(let b=0;b<(stone?4:6);b++){const o=(b+.5)/(stone?4:6);trim.push([X?x+o:x+.5,y0+.5,X?z+.5:z+o,bw,.86,bw,cb]);}}
+          const T=stone&&k===2?btrim:trim; // the balcony's own railing is kept apart: it can come down
+          T.push([x+.5,y0+.97,z+.5,X?1:.09,.07,X?.09:1,cr],[x+.5,y0+.06,z+.5,X?1:.08,.08,X?.08:1,cr]);
+          for(let b=0;b<(stone?4:6);b++){const o=(b+.5)/(stone?4:6);T.push([X?x+o:x+.5,y0+.5,X?z+.5:z+o,bw,.86,bw,cb]);}}
         continue;}
       if(lv.solid[i]&&kd===K.RAIL+8){panes.push([x+.5,y0+(y1-y0)/2,z+.5,1,y1-y0,1,0x7f9aa6]);continue;}
       const r=roomAt(k,x,z);
@@ -7601,8 +7630,8 @@ function build(G){
       if((inHouse(x,z))&&!lv.solid[i]){const up=k<3?L[k+1]:null,has=k===3||(up.floor&&up.floor[i]===1);if(has&&r){const t=ceilOf(r);quadH(K_(t),t[1],x,z,x+1,z+1,(k===3?ROOF:LVY[k+1])-.2,false);}}
       if(stA[i]>=0&&stBase[i]===k){const hh=rampH(i,x+.5,z+.5);steps.push([x+.5,hh-.08,z+.5,1,.16,1,0x4a3626]);}}}
   for(const key in F){const f=F[key],g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(f.p,3));g.setAttribute('normal',new THREE.Float32BufferAttribute(f.n,3));g.setAttribute('uv',new THREE.Float32BufferAttribute(f.u,2));
-    const [n,,tint]=key.replace(/^X/,'').split('|'),m=new THREE.Mesh(g,mmat(n,+tint));m.receiveShadow=true;m.castShadow=key[0]==='X';scene.add(m);}
-  instanced(trim,lam(0xffffff));instanced(steps.map(q=>(q[6]=0x7a5c40,q)),lam(0xffffff));
+    const [n,,tint]=key.replace(/^[XI]/,'').split('|'),m=new THREE.Mesh(g,mmat(n,+tint));m.receiveShadow=true;m.castShadow=key[0]==='X';scene.add(m);if(key[0]==='I')(M.ironWall=M.ironWall||[]).push(m);}
+  instanced(trim,lam(0xffffff));M.balRail=instanced(btrim,lam(0xffffff));instanced(steps.map(q=>(q[6]=0x7a5c40,q)),lam(0xffffff));
   const glass=new THREE.MeshLambertMaterial({color:0xb8c8d0,transparent:true,opacity:.22,depthWrite:false});instanced(panes,glass);
   {const wood=0x3e2416,bal=[],hh=z=>(30-z)/5*3.2;
     for(const x of [36.06,40.94]){for(let z=29.85;z>25;z-=.25)bal.push([x,hh(z)+.46,z,.045,.9,.045,0x4a2e1a]);
@@ -7623,8 +7652,14 @@ function build(G){
   {const cf=mmat('f_chimney_0',0xb8a090,{alpha:true,clamp:true}),cs=mmat('f_chimney_1',0xb8a090,{alpha:true,clamp:true}),ct=lam(0x221c18),g=new THREE.BoxGeometry(1.3,3.7,1.06);
     for(const [x,z] of [[24,26],[30,13],[51,13],[55,30],[39,11.6]]){const c=new THREE.Mesh(g,[cs,cs,ct,ct,cf,cf]);c.position.set(x+O,ROOF+.24+1.85,z+O);c.castShadow=true;scene.add(c);}}
   // balcony over the porch
-  instanced([[38.5,LVY[2]-.1,39.5,7,.2,3,0x8f8a7e]],lam(0xffffff));
-  instanced([35,36,40,41].map(x=>[x+.5,1.6,40.5,.35,3.2,.35,0xc9c3b4]),lam(0xffffff));
+  M.balSlab=instanced([[38.5,LVY[2]-.1,39.5,7,.2,3,0x8f8a7e]],lam(0xffffff));
+  M.balPosts=instanced([35,36,40,41].map(x=>[x+.5,1.6,40.5,.35,3.2,.35,0xc9c3b4]),lam(0xffffff));
+  // what's left if the brutes bring it down: the slab broken across the steps, the pillars down, the railing in pieces
+  {const d=[[37,.55,38.9,3.4,.2,2.2,0x8f8a7e,.35,.1,.25],[40.2,.45,39.4,3.2,.2,2.4,0x8a857a,-.3,-.15,-.2],[38.6,1.0,38.6,2.4,.2,1.6,0x8f8a7e,.9,.2,0],
+     [35.6,.2,41.3,.35,.35,3.0,0xc9c3b4,0,.4,1.5708],[41.4,.2,41.0,.35,.35,3.0,0xc9c3b4,0,-.5,1.5708],[39,.2,41.8,.35,.35,2.6,0xc9c3b4,0,1.2,1.5708],
+     [37.6,.3,38.3,1.2,.6,.9,0x77736a,.2,.5,.1],[39.6,.35,38.4,1.1,.7,.9,0x77736a,-.2,-.4,.2]];
+    for(let i=0;i<22;i++)d.push([36+Math.random()*5.5,.1+Math.random()*.5,38+Math.random()*3.5,.09,.86,.09,0x9a958a,Math.random()*3,Math.random()*3,1.3+Math.random()*.6]);
+    M.balDebris=instanced(d,lam(0xffffff));M.balDebris.visible=false;}
   // the grounds: rough lawn, gravel drive and turning circle, setts at the service doors, the dry fountain, the boundary railing
   {const sh=new THREE.Shape([[-80,-90],[160,-90],[160,150],[-80,150]].map(([x,y])=>new THREE.Vector2(x,y)));
     // holes: the house with its conservatory, and the pit of the storm-door steps (the shape is in x,z; flat() lays it down)
@@ -7771,7 +7806,6 @@ function placeFurniture(){
   hang({n:'portrait_lord',k:2,ry:0,sd:'n',a:[36.45,23.04,37.55,23.34],landing:1}); // the portrait at the head of the grand staircase
   instanced(M.frames,lam(0xffffff));
   for(const D of M.leaves)if(!D.gone)card(D.tex,D.x,D.y,D.z,D.ry,D.w,D.h,{uv:D.uv,rx:D.rx});
-  dressLights(list);
   const _m=new THREE.Matrix4(),_f=new THREE.Matrix4(),_q=new THREE.Quaternion(),_e=new THREE.Euler(),_v=new THREE.Vector3(),_s=new THREE.Vector3(1,1,1),ZERO=new THREE.Matrix4().makeScale(0,0,0);
   for(const n in by){const items=by[n],faces=fTemplate(n),meshes=faces.map(f=>{const im=new THREE.InstancedMesh(f.g,f.m,items.length);im.receiveShadow=true;scene.add(im);return im;});
     items.forEach((p,j)=>{const cx=(p.a[0]+p.a[2])/2,cz=(p.a[1]+p.a[3])/2;_m.compose(_v.set(cx,LVY[p.k]+(p.y||0),cz),_q.setFromEuler(_e.set(0,p.ry,0)),_s);
@@ -7780,11 +7814,12 @@ function placeFurniture(){
       // big pieces block movement and stop bullets, and can be smashed or thrown, like the cul-de-sac's
       const [w,d,h]=FURN[n].d;if(p.y||w*d<.12)return;const t='m_'+n;
       if(!PT[t])PT[t]={hp:Math.round(60+w*d*h*45),r:Math.min(1.05,Math.max(.22,Math.min(w,d)/2+.08)),h,dmg:h>1.5?34:25,light:w*d*h<.45?1:0};
-      const i=PROPS.length;PROPS.push({t,x:cx,z:cz,l:p.k,r:p.ry});PROPSTATE.push(0);PROPVIS[i]=0;
+      const i=PROPS.length;p.pi=i;PROPS.push({t,x:cx,z:cz,l:p.k,r:p.ry});PROPSTATE.push(0);PROPVIS[i]=0;
       let mir=null;if(FURN[n].glass){const q=glassLocal(n),c=Math.cos(p.ry),s_=Math.sin(p.ry),g=glassMesh(n,q.w,q.h,false);
         g.position.set(cx+q.x*c+q.z*s_,LVY[p.k]+q.y,cz-q.x*s_+q.z*c);g.rotation.y=p.ry;scene.add(g);mir=addMirror(n,p.k,g,p.ry,q.w,q.h,false);}
       let vis=true;PROPMESH[i]={get visible(){return vis;},set visible(v){if(v===vis)return;vis=v;mats.forEach((mm,fi)=>{meshes[fi].setMatrixAt(j,v?mm:ZERO);meshes[fi].instanceMatrix.needsUpdate=true;});if(mir){mir.dead=!v;mir.glass.visible=v&&!mir.live;}}};});
     meshes.forEach(im=>im.instanceMatrix.needsUpdate=true);}
+  dressLights(list); // after the furniture: a lamp knows which table it stands on
   // a thrown piece in flight is drawn whole
   const _furn=furniture;furniture=function(t,k){if(typeof t==='string'&&t.startsWith('m_'))return furnitureMesh(t.slice(2));return _furn(t,k);};
 }
@@ -7809,8 +7844,9 @@ const roomAtK=(k,x,z)=>M.rooms.find(r=>r.k===k&&x>=r.X0&&x<r.X1&&z>=r.Z0&&z<r.Z1
 // ---- windows: every third cell along the outside walls (none behind the porch and balcony, none into the conservatory)
 function winList(L){const out=[];
   for(const k of [1,2,3]){
-    for(let x=HX0+2;x<HX1-1;x+=3)for(const [z,f] of [[HZ0,'n'],[HZ1-1,'s']]){if(k<3&&f==='s'&&x>=34&&x<=42)continue;if(k===1&&f==='n'&&x>=34&&x<=42)continue;if(!L[k].solid[idx(x,z)])continue;out.push({k,x,z,f});}
-    for(let z=HZ0+2;z<HZ1-1;z+=3)for(const [x,f] of [[HX0,'w'],[HX1-1,'e']]){if(!L[k].solid[idx(x,z)])continue;out.push({k,x,z,f});}}
+    const sh=(x,z)=>M.shafts.some(S_=>Math.abs(S_.x-x)<=1&&Math.abs(S_.z-z)<=1&&k>=S_.k0&&k<=S_.k1); // no window where a passage runs up the wall
+    for(let x=HX0+2;x<HX1-1;x+=3)for(const [z,f] of [[HZ0,'n'],[HZ1-1,'s']]){if(k<3&&f==='s'&&x>=34&&x<=42)continue;if(k===1&&f==='n'&&x>=34&&x<=42)continue;if(!L[k].solid[idx(x,z)]||sh(x,z))continue;out.push({k,x,z,f});}
+    for(let z=HZ0+2;z<HZ1-1;z+=3)for(const [x,f] of [[HX0,'w'],[HX1-1,'e']]){if(!L[k].solid[idx(x,z)]||sh(x,z))continue;out.push({k,x,z,f});}}
   // inside, the space under a window and its curtains stays clear of furniture
   for(const w of out){const s=w.k<3?.45:.1,dp=w.k<3?.55:.4;let a;
     if(w.f==='n')a=[w.x-s,HZ0+1,w.x+1+s,HZ0+1+dp];else if(w.f==='s')a=[w.x-s,HZ1-1-dp,w.x+1+s,HZ1-1];else if(w.f==='w')a=[HX0+1,w.z-s,HX0+1+dp,w.z+1+s];else a=[HX1-1-dp,w.z-s,HX1-1,w.z+1+s];
@@ -7856,7 +7892,7 @@ function dressOpenings(L){
     if(![c1,c2].every(([x,z])=>inWorld(x,z)&&L[1].solid[idx(x,z)]&&L[0].solid[idx(x,z)]))return;
     if(w.f==='s'&&px>32&&px<45)return;if(w.f==='w'&&pz>26&&pz<33)return;if(w.f==='n'&&((px>24&&px<31)||(px>33&&px<44)))return;
     card('f_window_cellar_0',px+nx*.53,.32,pz+nz*.53,ryOf(nx,nz),.8,1.0,{tint:0xa8a49c});});
-  card('f_lord_cellar_door_0',38.965,LVY[0]+1.16,35.5,-Math.PI/2,1.0,2.3); // the Lord's iron-bound door, shut
+  M.ironCard=card('f_lord_cellar_door_0',38.965,LVY[0]+1.16,35.5,-Math.PI/2,1.0,2.3); // the Lord's iron-bound door, shut
 }
 // ---- paintings and wall mirrors
 function hang(p){const [w,h,cy,kind,own]=HANG[p.n],Y=LVY[p.k],nx=Math.sin(p.ry),nz=Math.cos(p.ry);
@@ -7883,8 +7919,8 @@ function addSrc(s){s.lvl=1;s.goal=1;s.ph=Math.random()*20;s.t0=0;s.glowAt=[];
   M.src.push(s);return s;}
 function crossCard(tex,x,y,z,w,h,ry){return [card(tex,x,y,z,ry||0,w,h,{ds:1}),card(tex,x,y,z,(ry||0)+Math.PI/2,w,h,{ds:1})];}
 const OILL={oil_lamp:[.17,.57,.3],servant_table_lamp:[.14,.45,.25],handheld_oil_lamp:[.18,.4,.36]};
-function oilLamp(n,k,x,y,z,lit,ry){const [w,h,ft]=OILL[n],hd=crossCard('f_'+n+'_0',x,y+h/2,z,w,h,ry);
-  const o={n,k,x,y,z,lit,cards:hd};if(lit)o.src=addSrc({k,x,y:y+h*(1-ft),z,type:'oil',col:0xff9a50,I:.75,R:5,glow:[[0,0,0,.3]]});M.oil.push(o);return o;}
+function oilLamp(n,k,x,y,z,lit,ry,on){const [w,h,ft]=OILL[n],hd=crossCard('f_'+n+'_0',x,y+h/2,z,w,h,ry);
+  const o={n,k,x,y,z,lit,cards:hd,on:on>=0?on:-1};if(lit)o.src=addSrc({k,x,y:y+h*(1-ft),z,type:'oil',col:0xff9a50,I:.75,R:5,glow:[[0,0,0,.3]]});M.oil.push(o);return o;}
 function dressLights(list){const R=(()=>{let s=31;return ()=>(s=(s*16807)%2147483647)/2147483647;})();
   // on the furniture: oil lamps on side tables, nightstands and desks; candelabra on the dining table and sideboards; candlesticks by the servants' beds
   for(const p of list){if(HANG[p.n]||p.y)continue;const F=FURN[p.n];if(!F)continue;const top=LVY[p.k]+F.d[2]*(TOPF[p.n]||1),cx=(p.a[0]+p.a[2])/2,cz=(p.a[1]+p.a[3])/2,plain=p.k===0||p.k===3;
@@ -7892,7 +7928,7 @@ function dressLights(list){const R=(()=>{let s=31;return ()=>(s=(s*16807)%214748
     if(p.n==='sideboard'){crossCard('f_candelabra_0',cx,top+.22,cz,.22,.45,p.ry);continue;}
     if(['parlor_side_table','nightstand','servant_nightstand','servant_side_table','study_desk','kitchen_work_table','journal_desk'].includes(p.n)){
       if(p.n==='servant_nightstand'&&R()<.5){crossCard('f_servant_candlestick_0',cx,top+.1,cz,.1,.2);continue;}
-      if(R()<.35)continue;oilLamp(plain||p.n==='kitchen_work_table'?'servant_table_lamp':'oil_lamp',p.k,cx,top,cz,R()<.75,p.ry);}}
+      if(R()<.35)continue;oilLamp(plain||p.n==='kitchen_work_table'?'servant_table_lamp':'oil_lamp',p.k,cx,top,cz,R()<.75,p.ry,p.pi!=null?p.pi:-1);}}
   // hand lamps: three set down on the floor on every level, against a wall, out of the way
   for(let k=0;k<4;k++){const rs=M.rooms.filter(r=>r.k===k&&r.id!=='lord'&&r.id!=='balcony'&&r.id!=='cons');let put=0;
     for(let t=0;t<80&&put<3;t++){const r=rs[Math.floor(R()*rs.length)],ix0=r.X0+1,iz0=r.Z0+1,ix1=r.X1===HX1?r.X1-1:r.X1,iz1=r.Z1===HZ1?r.Z1-1:r.Z1;
@@ -7921,7 +7957,8 @@ function dressLights(list){const R=(()=>{let s=31;return ()=>(s=(s*16807)%214748
       const c=document.createElement('canvas');c.width=256;c.height=64;const g=c.getContext('2d');g.fillStyle='#8a7444';g.fillRect(0,0,256,64);g.strokeStyle='#3a2a12';g.lineWidth=6;g.strokeRect(3,3,250,58);
       g.fillStyle='#2a1c0c';g.font='bold 38px Georgia, serif';g.textAlign='center';g.fillText(nm,128,46);
       const pl=new THREE.Mesh(new THREE.PlaneGeometry(.36,.09),new THREE.MeshLambertMaterial({map:new THREE.CanvasTexture(c)}));pl.position.set(x,Y+.95,zw-.02);pl.rotation.y=Math.PI;scene.add(pl);
-      M.valves.push({k:i,x,y:Y+1.3,z:zw-.2,wheel:wh});});}
+      const led=new THREE.Mesh(new THREE.SphereGeometry(.03,10,8),new THREE.MeshBasicMaterial({color:0x40ff70}));led.position.set(x+.26,Y+1.55,zw-.06);scene.add(led);
+      M.valves.push({k:i,x,y:Y+1.3,z:zw-.2,wheel:wh});BREAKERS.push({b:10+i,x,z:zw-.6,x0:x,g:wh,led,valve:i});});}
   buildGlow();buildRig();}
 // the flames' glow: one cloud of soft points, each lit by its own lamp
 function buildGlow(){const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(GL.pos,3));g.setAttribute('size',new THREE.Float32BufferAttribute(GL.size,1));
@@ -7935,13 +7972,14 @@ const RIG={L:[],n:0};
 function buildRig(){const n=OPT.gfx==='high'?10:OPT.gfx==='med'?6:4;if(RIG.n===n)return;for(const l of RIG.L)scene.remove(l.l);RIG.L=[];RIG.n=n;
   for(let i=0;i<n;i++){const l=new THREE.PointLight(0xffc080,0,6,2);scene.add(l);RIG.L.push({l,s:null,f:0});}
   scene.traverse(o=>{if(o.material)(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.needsUpdate=true);});}
-function flick(s,t){if(s.type==='oil')return .86+.07*Math.sin(t*9.1+s.ph)+.05*Math.sin(t*23.7+s.ph*2)+.02*Math.sin(t*41+s.ph);
+function flick(s,t){if(s.type==='fire')return .72+.2*Math.sin(t*17+s.ph)*Math.sin(t*6.3+s.ph*2)+.08*Math.sin(t*41);if(s.type==='oil')return .86+.07*Math.sin(t*9.1+s.ph)+.05*Math.sin(t*23.7+s.ph*2)+.02*Math.sin(t*41+s.ph);
   return .97+.025*Math.sin(t*13+s.ph)*Math.sin(t*2.3+s.ph);}
 // gas on a floor goes out (sputtering, lamp by lamp) or comes back (each bracket catching in turn)
 function setGas(k,on){M.gas[k]=on?1:0;const t=performance.now()/1000;for(const s of M.src)if(s.type==='gas'&&s.k===k){s.goal=on?1:0;s.t0=t+Math.random()*(on?.9:.7);}}
 M.setGas=setGas;
 let LT=performance.now()/1000;
 function lightTick(){requestAnimationFrame(lightTick);if(!M.on||!GL.pts)return;const t=performance.now()/1000,dt=Math.min(.1,t-LT);LT=t;
+  for(let k=0;k<4;k++){const out=!!(S&&S.bo&&S.bo[10+k]>0);if(out===!!M.gas[k])setGas(k,!out);} // the host says which floors have gas
   buildRig();const sc=renderer.domElement.height/(2*Math.tan(camera.fov*Math.PI/360));GL.pts.material.uniforms.sc.value=sc;
   // each source's level: steady, sputtering out, or catching again
   for(const s of M.src){if(s.lvl===s.goal&&!s.sp)continue;if(t<s.t0)continue;const u=t-s.t0;
@@ -7952,7 +7990,7 @@ function lightTick(){requestAnimationFrame(lightTick);if(!M.on||!GL.pts)return;c
   col.needsUpdate=true;
   // which lamps get a real light: on your floor, lit, nearest first (chandeliers count as a little nearer)
   const cp=camera.position,k=[0,1,2,3].reduce((a,i)=>cp.y>LVY[i]+.3?i:a,0);
-  const want=M.src.filter(s=>s.k===k&&s.lvl>.03&&Math.abs(s.x-cp.x)<18&&Math.abs(s.z-cp.z)<18).map(s=>[s,Math.hypot(s.x-cp.x,s.y-cp.y,s.z-cp.z)-(s.chand?3:0)]).sort((a,b)=>a[1]-b[1]).slice(0,RIG.n).map(a=>a[0]);
+  const want=M.src.concat(Object.values(FIRES).map(F=>F.src)).filter(s=>s.k===k&&s.lvl>.03&&Math.abs(s.x-cp.x)<18&&Math.abs(s.z-cp.z)<18).map(s=>[s,Math.hypot(s.x-cp.x,s.y-cp.y,s.z-cp.z)-(s.chand?3:0)]).sort((a,b)=>a[1]-b[1]).slice(0,RIG.n).map(a=>a[0]);
   for(const L of RIG.L){const keep=L.s&&want.includes(L.s);L.f=Math.max(0,Math.min(1,L.f+(keep?dt*3:-dt*5)));if(!keep&&L.f===0)L.s=null;}
   for(const s of want){if(RIG.L.some(L=>L.s===s))continue;const L=RIG.L.find(L=>!L.s);if(!L)break;L.s=s;L.f=0;L.l.position.set(s.x,s.y,s.z);L.l.color.setHex(s.col);L.l.distance=s.R;}
   for(const L of RIG.L)L.l.intensity=L.s?L.s.I*L.s.lvl*flick(L.s,t)*L.f:0;}
@@ -7984,7 +8022,7 @@ setInterval(()=>{if(!M.on||!M.preview||!WS)return;WS.toSpawn=0;if(WS.bossQ)WS.bo
    Swapping is two-way: each map's grid, lists and scene objects are put away whole and brought back, so the house is only built once. */
 const MAPS=['c','m'],SNAP={};let MAPCUR='c';
 const TAS=()=>[solid0,kind0,solid1,kind1,floor1,bld,stA,stBase,stLen,stStart,stSign,doorCell,winCell,links,links2];
-const ARRS=()=>[PORCH,DOORS,DOORSTATE,WINDOWS,WINSTATE,JUMP_WIN,PROPS,PROPSTATE,INTER,SPAWNS,SPAWN_PTS,PROPMESH,PROPVIS];
+const ARRS=()=>[PORCH,DOORS,DOORSTATE,WINDOWS,WINSTATE,JUMP_WIN,PROPS,PROPSTATE,INTER,SPAWNS,SPAWN_PTS,PROPMESH,PROPVIS,BREAKERS];
 function capture(){return {ta:TAS().map(a=>a.slice()),lv:LEVELS.slice(),roof:roofAt,arr:ARRS().map(a=>a.slice()),bnd:Object.assign({},BND)};}
 function restore(C){TAS().forEach((a,i)=>a.set(C.ta[i]));for(let k=0;k<LEVELS.length;k++)LEVELS[k]=C.lv[k];roofAt=C.roof;
   ARRS().forEach((a,i)=>{a.length=0;for(const v of C.arr[i])a.push(v);});Object.assign(BND,C.bnd);}
@@ -7996,7 +8034,7 @@ function setMap(mp){if(mp===MAPCUR||!MAPS.includes(mp))return;
     for(const o of M.mObjs)scene.remove(o);for(const L of RIG.L)scene.remove(L.l);RIG.L=[];RIG.n=0;
     for(const m of M.mirrors)if(m.live){m.live.visible=false;m.live.userData.m=null;m.live=null;m.glass.visible=!m.dead;}for(const r of RP)scene.remove(r);
     restore(SNAP.c);for(const o of M.culObjs)scene.add(o);}
-  MAPCUR=mp;
+  MAPCUR=mp;CURMAP=mp;
   // the lights in the scene changed: every material recompiles once, and High's shadow materials follow the new objects
   if(typeof SHADOW!=='undefined'&&SHADOW.on){swapMats(scene,true);shadowSetup();}
   scene.traverse(o=>{if(o.material)(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.needsUpdate=true);});}
@@ -8010,6 +8048,982 @@ function pickMap(){const h=location.hash;if(M.preview)return 'm';const f=h.match
 // everyone else follows the snapshot's map
 {const _os=onSnapshot;onSnapshot=function(s){if(s&&s.mp&&s.mp!==MAPCUR)setMap(s.mp);return _os(s);};}
 M.setMap=setMap;M.map=()=>MAPCUR;
+/* ================= OIL LAMPS: carry them, set them down, throw them, shoot them =================
+   [F] next to a lamp picks it up (it lights your way, and the horde sees a lit lamp from as far as a flashlight).
+   Carrying one, [F] sets it down at your feet and Fire throws it. A lit lamp that breaks (thrown, shot, or knocked off a
+   table that's smashed or thrown) bursts into burning oil: it hurts everything standing in it, zombies and players alike,
+   for about ten seconds, and that corner of the house is darker afterwards. An unlit lamp just shatters.
+   The host decides where every lamp is and what burns; each player sends only what they did (take, set down, throw, shot). */
+const LAMP_R=.16,FIRE_R=1.7,FIRE_T=10,FIRE_ZDPS=38,FIRE_PDPS=14,BURST_Z=60,BURST_P=12;
+const LST=[];let LSIG='';
+// ---- host side
+function hostLamps(W){if(W.lamps)return W.lamps;W.lamps=M.oil.map(o=>({st:0,x:o.x,y:o.y,z:o.z,k:o.k,lit:o.lit?1:0,h:null,on:o.on,vx:0,vy:0,vz:0,moved:0}));W.fires=W.fires||[];W.nextF=W.nextF||1;return W.lamps;}
+function lampBreak(W,L,x,y,z){L.st=3;L.h=null;L.moved=1;L.x=x;L.y=y;L.z=z;
+  if(!L.lit){addNoise(W,x,y,z,9,'creak');return;}
+  const g=groundAt(x,z,y+.3);W.fires.push({id:W.nextF++,x,y:g,z,t:FIRE_T});addNoise(W,x,g,z,14,'boom');
+  for(const zb of W.zs.slice())if(zb.type<5&&Math.hypot(zb.x-x,zb.z-z)<FIRE_R+.5&&Math.abs(zb.y-g)<1.4)simDamage(W,zb,BURST_Z,null,KD.BOOM);
+  for(const p of (W._players||[]))if(p.alive&&Math.hypot(p.x-x,p.z-z)<FIRE_R&&Math.abs(p.y-g)<1.4)W.taken[p.key]=(W.taken[p.key]||0)+BURST_P;}
+function simApplyLamp(W,key,lq){if(!lq||lq.r!==W.run||!Array.isArray(lq.q)||MAPCUR!=='m')return;const L_=hostLamps(W),seen=W.lqSeen||(W.lqSeen={});
+  for(const a of lq.q){const n=a[0];if(n<=(seen[key]||0))continue;seen[key]=n;const L=L_[a[2]];if(!L)continue;
+    if(a[1]==='take'){if(L.st===0&&!L_.some(q=>q.h===key)){L.st=1;L.h=key;L.moved=1;}}
+    else if(a[1]==='drop'){if(L.h===key){L.st=0;L.h=null;L.x=a[3];L.y=a[4];L.z=a[5];L.on=-1;}}
+    else if(a[1]==='throw'){if(L.h===key){L.st=2;L.h=null;L.x=a[3];L.y=a[4];L.z=a[5];L.vx=a[6];L.vy=a[7];L.vz=a[8];L.on=-1;L.by=key;}}
+    else if(a[1]==='shot'){if(L.st===0||L.st===2)lampBreak(W,L,L.x,L.y+.2,L.z);}}}
+function stepLamps(W,dt,players){if(MAPCUR!=='m'||W.st!==1)return;const L_=hostLamps(W);W._players=players;
+  for(const L of L_){
+    if(L.st===1){const p=players.find(q=>q.key===L.h);if(!p||!p.alive){L.st=0;L.h=null;if(p){L.x=p.x;L.z=p.z;L.y=groundAt(p.x,p.z,p.y+.5);}L.on=-1;}else{L.x=p.x;L.y=p.y+1;L.z=p.z;}continue;}
+    if(L.st===0&&L.on>=0&&W.pst[L.on]){L.on=-1;L.st=2;L.vx=(Math.random()-.5);L.vz=(Math.random()-.5);L.vy=.5;} // the table under it went: it falls
+    if(L.st!==2)continue;
+    L.vy-=9.8*dt;const nx=L.x+L.vx*dt,ny=L.y+L.vy*dt,nz=L.z+L.vz*dt;
+    let hit=solidPt(nx,ny,nz)||groundAt(nx,nz,L.y+.05)>=ny;
+    if(!hit)for(const zb of W.zs)if(zb.type<5&&Math.hypot(zb.x-nx,zb.z-nz)<.45&&ny>zb.y&&ny<zb.y+1.9){simDamage(W,zb,20,L.by||null,KD.BODY);hit=true;break;}
+    if(hit)lampBreak(W,L,L.x,L.y,L.z);else{L.x=nx;L.y=ny;L.z=nz;}}
+  for(let i=W.fires.length-1;i>=0;i--){const F=W.fires[i];F.t-=dt;if(F.t<=0){W.fires.splice(i,1);continue;}
+    for(const zb of W.zs.slice())if(zb.type<5&&Math.hypot(zb.x-F.x,zb.z-F.z)<FIRE_R&&Math.abs(zb.y-F.y)<1.2)simDamage(W,zb,FIRE_ZDPS*dt,null,KD.BOOM);
+    for(const p of players)if(p.alive&&Math.hypot(p.x-F.x,p.z-F.z)<FIRE_R&&Math.abs(p.y-F.y)<1.2)W.taken[p.key]=(W.taken[p.key]||0)+FIRE_PDPS*dt;}}
+{const _ss=simStep;simStep=function(W,dt,players){_ss(W,dt,players);try{stepLamps(W,dt,players||[]);}catch(e){if(!M.lampErr){M.lampErr=1;console.warn('lamps',e);}}};}
+// a lit lamp in your hand is seen like a flashlight
+{const _so2=sightOf;sightOf=function(W,t){if(MAPCUR==='m'&&W.lamps&&W.lamps.some(L=>L.h===t.key&&L.lit))return FL_SEE;return _so2(W,t);};}
+// ---- in the snapshot: only the lamps that have moved or broken, and the fires
+{const _pw2=packW;packW=function(W){const s=_pw2(W);if(MAPCUR==='m'&&W.lamps){const r1=v=>Math.round(v*10);
+  const ol=[];W.lamps.forEach((L,i)=>{if(L.moved)ol.push([i,L.st,r1(L.x),r1(L.y),r1(L.z),L.h||'']);});if(ol.length)s.ol=ol;
+  if(W.fires.length)s.fi=W.fires.map(F=>[F.id,r1(F.x),r1(F.y),r1(F.z),Math.ceil(F.t*10)]);}return s;};}
+{const _aw2=adoptW;adoptW=function(S0,pr){const W=_aw2(S0,pr);if(S0&&S0.mp==='m'){const L_=hostLamps(W);
+  for(const [i,st,x,y,z,h] of S0.ol||[]){const L=L_[i];if(!L)continue;Object.assign(L,{st:st===2?0:st,x:x/10,y:y/10,z:z/10,h:h||null,moved:1,on:-1});}
+  W.fires=(S0.fi||[]).map(f=>({id:f[0],x:f[1]/10,y:f[2]/10,z:f[3]/10,t:f[4]/10}));W.nextF=1+Math.max(0,...W.fires.map(f=>f.id));}return W;};}
+// the host takes everyone's lamp actions (its own and the squad's)
+{const _sab=simApplyBreaker;simApplyBreaker=function(W,key,bk){_sab(W,key,bk);const lq=key===myKey()?P.lq:(squadPeers().find(p=>'q'+p.presence.rid===key)||{presence:{}}).presence.lq;simApplyLamp(W,key,lq);};}
+// ---- your side
+P.lq={r:0,n:0,q:[]};
+function lampAct(a,...args){if(P.lq.r!==P.run)P.lq={r:P.run,n:0,q:[]};P.lq.n++;P.lq.q.push([P.lq.n,a,...args]);if(P.lq.q.length>8)P.lq.q.shift();}
+M.heldLamp=()=>heldLamp();
+function heldLamp(){const k=myKey();for(let i=0;i<LST.length;i++)if(LST[i]&&LST[i].st===1&&LST[i].h===k)return i;return -1;}
+function nearLamp(){if(!P.alive||MAPCUR!=='m')return -1;let best=-1,bd=1.5;
+  for(let i=0;i<M.oil.length;i++){const L=LST[i];if(!L||L.st!==0)continue;if(Math.abs(L.y-P.y)>1.6)continue;const d=Math.hypot(L.x-P.x,L.z-P.z);if(d<bd){bd=d;best=i;}}return best;}
+{const _up=usePress;usePress=function(){if(MAPCUR==='m'&&inGame()&&P.alive){const h=heldLamp();
+    if(h>=0){const fx=-Math.sin(P.yaw),fz=-Math.cos(P.yaw),x=P.x+fx*.55,z=P.z+fz*.55;lampAct('drop',h,+x.toFixed(2),+groundAt(x,z,P.y+.6).toFixed(2),+z.toFixed(2));return;}
+    const n=nearLamp();if(n>=0&&!nearInteract()){lampAct('take',n);vmReach&&vmReach();return;}}
+  return _up();};}
+{const _fi=fire;fire=function(){if(MAPCUR==='m'&&inGame()&&P.alive){const h=heldLamp();if(h>=0){if(P.lampThrowT>0)return;P.lampThrowT=.5;
+    camera.getWorldDirection(_d);const o=camera.position,sp=9;lampAct('throw',h,+(o.x+_d.x*.5).toFixed(2),+(o.y+_d.y*.5-.15).toFixed(2),+(o.z+_d.z*.5).toFixed(2),+(_d.x*sp).toFixed(2),+(_d.y*sp+2.4).toFixed(2),+(_d.z*sp).toFixed(2));
+    vmReach&&vmReach();return;}}return _fi();};}
+// bullets find the lamps too: a shot lamp is reported, not a prop
+{const _rp=rayProp;rayProp=function(ox,oy,oz,dx,dy,dz,maxT){let r=_rp(ox,oy,oz,dx,dy,dz,maxT);if(MAPCUR!=='m')return r;const lim=r?r.t:maxT;
+  for(let i=0;i<M.oil.length;i++){const L=LST[i];if(!L||(L.st!==0&&L.st!==2))continue;const t=raySphere(ox,oy,oz,dx,dy,dz,L.x,L.y+.22,L.z,LAMP_R);if(t>0&&t<lim&&(!r||t<r.t))r={i:'L'+i,t};}return r;};}
+{const _hp=hitProp;hitProp=function(i,dmg,x,y,z){if(typeof i==='string'&&i[0]==='L'){lampAct('shot',+i.slice(1));burst(x,y,z,8,shardM,3,.05);SFX.hit();return;}return _hp(i,dmg,x,y,z);};}
+// the prompt
+{const _dp=darkPrompt;darkPrompt=function(verb,t){const d=_dp(verb,t);if(d||MAPCUR!=='m'||!inGame()||!P.alive)return d;
+  const fireK=lastInput==='pad'?'('+padBtn('fire')+')':isTouch?'FIRE':'[Click]',use=lastInput==='pad'?'('+padBtn('use')+')':isTouch?'USE':'[F]';
+  if(heldLamp()>=0)return [use+' Set the lamp down · '+fireK+' Throw it',false];
+  if(!t){const n=nearLamp();if(n>=0)return [use+' Pick up the '+(M.oil[n].lit?'lit ':'')+'lamp',false];}return null;};}
+// ---- what everyone sees
+const FIRES={};
+const fireMat=new THREE.ShaderMaterial({uniforms:{sc:{value:600}},transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,
+  vertexShader:'attribute float a;varying float va;uniform float sc;void main(){va=a;vec4 mv=modelViewMatrix*vec4(position,1.);gl_PointSize=min(220.,(.25+.35*a)*sc/-mv.z);gl_Position=projectionMatrix*mv;}',
+  fragmentShader:'varying float va;void main(){vec2 c=gl_PointCoord-.5;float d=length(c)*2.;float k=pow(max(0.,1.-d),1.6)*va;gl_FragColor=vec4(vec3(1.6,.62,.14)*k*1.4+vec3(.6,.5,.3)*k*k,1.);}'});
+function fireMesh(){const n=40,g=new THREE.BufferGeometry(),pos=new Float32Array(n*3),a=new Float32Array(n),seed=[];
+  for(let i=0;i<n;i++)seed.push([Math.random()*6.28,Math.random(),Math.random()*FIRE_R*.85,Math.random()]);
+  g.setAttribute('position',new THREE.BufferAttribute(pos,3));g.setAttribute('a',new THREE.BufferAttribute(a,1));
+  const p=new THREE.Points(g,fireMat);p.frustumCulled=false;p.renderOrder=6;scene.add(p);return {p,seed,src:{type:'fire',x:0,y:0,z:0,k:0,col:0xff8a30,I:2.2,R:8,lvl:1,ph:Math.random()*9}};}
+function heldMesh(n){const g=new THREE.Group(),[w,h]=OILL[n];for(const a of [0,Math.PI/2]){const q=new THREE.Mesh(new THREE.PlaneGeometry(w,h),mmat('f_'+n+'_0',0xffffff,{alpha:true,side:1,clamp:true}));q.position.y=h/2;q.rotation.y=a;g.add(q);}return g;}
+const HELD={};let FPL=null;
+function cardMove(hd,x,y,z){const c=hd.C.list[hd.j];c[0]=x;c[1]=y;c[2]=z;cardShow(hd,true);}
+function lampsApply(s){
+  // where every lamp is now: the host's word for the ones that moved, home for the rest
+  const mv={};for(const r of s.ol||[])mv[r[0]]=r;
+  const sig=JSON.stringify(s.ol||[]);
+  for(let i=0;i<M.oil.length;i++){const o=M.oil[i],r=mv[i];LST[i]=r?{st:r[1],x:r[2]/10,y:r[3]/10,z:r[4]/10,h:r[5]||null}:{st:0,x:o.x,y:o.y,z:o.z,h:null};}
+  if(sig!==LSIG){LSIG=sig;
+    for(let i=0;i<M.oil.length;i++){const o=M.oil[i],L=LST[i];const atRest=L.st===0,gone=L.st===3;
+      for(const hd of o.cards){if(atRest)cardMove(hd,L.x,L.y+OILL[o.n][1]/2,L.z);else cardShow(hd,false);}
+      if(o.src){if(gone){o.src.lvl=0;o.src.goal=0;o.src.sp=0;o.src.t0=1e12;}}
+      if(L.st!==1&&L.st!==2&&HELD[i]){scene.remove(HELD[i]);delete HELD[i];}}}
+  // fires
+  const live={};for(const f of s.fi||[]){live[f[0]]=1;let F=FIRES[f[0]];if(!F){F=FIRES[f[0]]=fireMesh();F.src.x=f[1]/10;F.src.y=f[2]/10+.4;F.src.z=f[3]/10;F.src.k=lvIdx(f[2]/10);
+      sfxAt('smash',F.src.x,F.src.z,1.2);burst(F.src.x,F.src.y,F.src.z,24,shardM,4,.06);}F.t=f[4]/10;}
+  for(const id in FIRES)if(!live[id]){scene.remove(FIRES[id].p);delete FIRES[id];}}
+{const _os2=onSnapshot;onSnapshot=function(s){const r=_os2(s);try{if(s&&MAPCUR==='m'&&M.oil)lampsApply(s);}catch(e){if(!M.lampErr2){M.lampErr2=1;console.warn('lamps',e);}}return r;};}
+// every frame: carried and flying lamps, their light, the flames
+function lampFrame(dt){if(MAPCUR!=='m'||!M.oil)return;P.lampThrowT=Math.max(0,(P.lampThrowT||0)-dt);const t=performance.now()/1000,me=myKey();
+  for(let i=0;i<M.oil.length;i++){const L=LST[i],o=M.oil[i];if(!L)continue;let x=L.x,y=L.y,z=L.z,show=L.st===1||L.st===2;
+    if(L.st===1){if(L.h===me){show=false;}else{const sp=squadPeers().find(p=>'q'+p.presence.rid===L.h),pr=sp&&RM[sp.peer];if(pr){x=pr.x+Math.sin(pr.yaw||0)*-.25;y=pr.y+.75;z=pr.z+Math.cos(pr.yaw||0)*-.25;}}}
+    if(show){let g=HELD[i];if(!g){g=HELD[i]=heldMesh(o.n);scene.add(g);}g.position.set(x,y,z);g.rotation.y+=L.st===2?dt*9:0;}else if(HELD[i]){scene.remove(HELD[i]);delete HELD[i];}
+    if(o.src&&L.st!==3){if(L.st===1&&L.h===me){camera.getWorldDirection(_d);x=P.x-Math.cos(P.yaw)*.25+_d.x*.4;y=P.y+1.25;z=P.z+Math.sin(P.yaw)*.25+_d.z*.4;}
+      const s=o.src;s.x=x;s.y=y+OILL[o.n][1]*(1-OILL[o.n][2]);s.z=z;s.k=lvIdx(y);
+      for(const gi of s.glowAt){GL.pos[gi*3]=s.x;GL.pos[gi*3+1]=s.y;GL.pos[gi*3+2]=s.z;const pa=GL.pts&&GL.pts.geometry.attributes.position;if(pa){pa.array[gi*3]=s.x;pa.array[gi*3+1]=s.y;pa.array[gi*3+2]=s.z;pa.needsUpdate=true;}}}}
+  // your own lamp, held low in your left hand
+  const h=heldLamp();if(h>=0){if(!FPL||FPL.userData.n!==M.oil[h].n){if(FPL)camera.remove(FPL);FPL=heldMesh(M.oil[h].n);FPL.userData.n=M.oil[h].n;FPL.position.set(-.3,-.52,-.62);FPL.scale.setScalar(.9);camera.add(FPL);}}
+  else if(FPL){camera.remove(FPL);FPL=null;}
+  // flames: sparks rising and falling back into the pool
+  const sc=renderer.domElement.height/(2*Math.tan(camera.fov*Math.PI/360));fireMat.uniforms.sc.value=sc;
+  for(const id in FIRES){const F=FIRES[id],pa=F.p.geometry.attributes.position,aa=F.p.geometry.attributes.a,fade=Math.min(1,F.t/3);
+    F.seed.forEach((q,j)=>{q[1]+=dt*(.6+q[3]*.8);if(q[1]>1){q[1]-=1;q[0]=Math.random()*6.28;q[2]=Math.random()*FIRE_R*.85;}
+      const r=q[2]*(1-q[1]*.5);pa.array[j*3]=F.src.x+Math.cos(q[0])*r;pa.array[j*3+1]=F.src.y-.38+q[1]*(.5+q[3]*.9);pa.array[j*3+2]=F.src.z+Math.sin(q[0])*r;aa.array[j]=(1-q[1])*fade*(.6+.4*Math.sin(t*20+j));});
+    pa.needsUpdate=true;aa.needsUpdate=true;F.src.lvl=fade;}}
+{const _lt=lookTick;lookTick=function(dt){_lt(dt);try{lampFrame(dt);}catch(e){if(!M.lampErr3){M.lampErr3=1;console.warn('lamps',e);}}};}
+/* ================= THE DOLLS AND THE CURSED PAINTINGS =================
+   Dolls: two each run, starting in rooms the girls could reach (one downstairs, one upstairs). While anyone is
+   looking at one, it lies limp where it fell. When nobody is, it moves, and if it reaches you unseen it stabs you, vanishes,
+   and turns up somewhere else a while later with blood on its mouth, hand and arm. Two shots break one for good.
+   Paintings: three of the six family portraits are cursed each run (the one at the head of the staircase is a coin flip).
+   Pass within arm's reach with your back or side to one and the frame creaks; half a second later one of the family reaches
+   out, grabs you and stabs you, then rests for 45 seconds. Face it and it stays a painting.
+   A stab from either: 30% of your health (at least 12, never the last point), regeneration halved, and your aim keeps sinking
+   until you're fully healed; every further stab adds to the pull. The host decides all of it; everyone sees the same. */
+const STAB_MIN=12,STAB_K=.3,PAINT_REACH=1.3,PAINT_WIND=.5,PAINT_REST=45,DOLL_SPD=2.4,DOLL_HP=2,DROOP=5*Math.PI/180;
+// who reaches out of each portrait, and from where on the canvas (fraction across, fraction down)
+const REACHER={portrait_lord:[.5,.36,'the Lord'],portrait_couple:[.68,.45,'the wife'],portrait_family:[.68,.27,'the mother'],
+  portrait_grandparents:[.72,.45,'the grandmother'],portrait_parents:[.25,.36,'the father'],portrait_children:[.5,.44,'the boy']};
+function stabPlayer(W,p,x,y,z,kind,idx,fixed){const hp=Math.max(0,p.hp==null?100:p.hp),dmg=Math.max(0,Math.min(hp-1,fixed!=null?fixed:Math.max(STAB_MIN,hp*STAB_K)));
+  W.taken[p.key]=(W.taken[p.key]||0)+dmg;p.hp=hp-dmg; /* a second stab in the same moment cuts from what's left */const st=W.stb||(W.stb={}),o=st[p.key];st[p.key]=[(o?o[0]:0)+1,Math.round(x*10),Math.round(y*10),Math.round(z*10),kind,idx];
+  addNoise(W,x,y,z,6,'creak');}
+// ---- host: the paintings
+function hostPaint(W){if(W.cursed)return W.cursed;const C=M.paintings.map((p,i)=>[p,i]).filter(([p])=>p.cand),land=C.find(([p])=>p.landing),rest=shuffle(C.filter(q=>q!==land));
+  const pick=[];if(land&&Math.random()<.5)pick.push(land);while(pick.length<3&&rest.length)pick.push(rest.shift());
+  W.cursed=pick.map(([p,i])=>({i,k:p.k,x:p.x,z:p.z,nx:Math.sin(p.ry),nz:Math.cos(p.ry),cd:0,wind:0,tgt:null}));return W.cursed;}
+function stepPaint(W,dt,players){for(const c of hostPaint(W)){if(c.cd>0){c.cd-=dt;continue;}const fx=c.x+c.nx*.35,fz=c.z+c.nz*.35;
+  if(c.wind>0){c.wind-=dt;if(c.wind<=0){const p=players.find(q=>q.key===c.tgt);
+      if(p&&p.alive&&Math.hypot(p.x-fx,p.z-fz)<PAINT_REACH+.4){stabPlayer(W,p,c.x,LVY[c.k]+1.6,c.z,'p',c.i);c.cd=PAINT_REST;}else c.cd=6;}continue;}
+  for(const p of players){if(!p.alive||Math.abs(p.y-LVY[c.k])>1)continue;const dx=fx-p.x,dz=fz-p.z,d=Math.hypot(dx,dz);if(d>PAINT_REACH)continue;
+    const lx=-Math.sin(p.yaw||0),lz=-Math.cos(p.yaw||0);if((lx*dx+lz*dz)/(d||1)>.35)continue; // they're facing it: it stays a painting
+    c.wind=PAINT_WIND;c.tgt=p.key;W.pw=W.pw||{};W.pw[c.i]=(W.pw[c.i]||0)+1;break;}}}
+// ---- host: the dolls
+function familyRooms(k){return M.rooms.filter(r=>r.k===k&&['ent','fam','circ','wet'].includes(r.zone)&&!['balcony','cons','sstairs','closet'].includes(r.id));}
+function dollSpot(k,avoid){const rs=familyRooms(k);for(let t=0;t<60;t++){const r=rs[(Math.random()*rs.length)|0],ix1=r.X1===HX1?r.X1-1:r.X1,iz1=r.Z1===HZ1?r.Z1-1:r.Z1;
+    const x=r.X0+1.3+Math.random()*Math.max(.1,ix1-r.X0-2.6),z=r.Z0+1.3+Math.random()*Math.max(.1,iz1-r.Z0-2.6),i=idx(Math.floor(x),Math.floor(z));
+    if(LEVELS[k].solid[i]||stA[i]>=0)continue;if(M.furn.some(p=>!HANG[p.n]&&x>p.a[0]-.3&&x<p.a[2]+.3&&z>p.a[1]-.3&&z<p.a[3]+.3))continue;
+    if(avoid&&avoid.some(p=>Math.hypot(p.x-x,p.z-z)<12))continue;return [x,z];}return null;}
+function hostDolls(W){if(W.dolls)return W.dolls;const n=2,ks=[1,2];W.dolls=[];
+  for(let i=0;i<n;i++){const s=dollSpot(ks[i]);if(!s)continue;W.dolls.push({x:s[0],y:LVY[ks[i]],z:s[1],k:ks[i],st:0,hp:DOLL_HP,blood:0,ry:Math.random()*6.28,t:0,kind:i===1?1:i===0?0:(Math.random()<.5?0:1)});}
+  return W.dolls;}
+function watched(W,d,players){for(const p of players){if(!p.alive)continue;const ey=p.y+1.55,dx=d.x-p.x,dz=d.z-p.z,dy=d.y+.1-ey,dh=Math.hypot(dx,dz);if(dh>30||Math.abs(d.y-p.y)>2.6)continue;
+  const lx=-Math.sin(p.yaw||0),lz=-Math.cos(p.yaw||0);if(dh>.6&&(lx*dx+lz*dz)/dh<.62)continue;const dd=Math.hypot(dh,dy);
+  if(wallHit(p.x,ey,p.z,dx/dd,dy/dd,dz/dd,dd)<dd-.4)continue;return true;}return false;}
+function stepDolls(W,dt,players){for(const d of hostDolls(W)){if(d.st===2)continue;
+  if(d.st===1){d.t-=dt;if(d.t>0)continue;const k=Math.random()<.5?1:2,s=dollSpot(k,players.filter(p=>p.alive));if(!s){d.t=5;continue;}Object.assign(d,{x:s[0],z:s[1],y:LVY[k],k,st:0,ry:Math.random()*6.28});continue;}
+  if(watched(W,d,players))continue; // seen: it's only a doll
+  let tgt=null,bd=1e9;for(const p of players){if(!p.alive)continue;const q=Math.hypot(p.x-d.x,p.z-d.z)+Math.abs(p.y-d.y)*4;if(q<bd){bd=q;tgt=p;}}if(!tgt)continue;
+  if(Math.hypot(tgt.x-d.x,tgt.z-d.z)<.7&&Math.abs(tgt.y-d.y)<1){stabPlayer(W,tgt,d.x,d.y+.4,d.z,'d',W.dolls.indexOf(d));d.st=1;d.blood=1;d.t=25+Math.random()*25;continue;}
+  const same=Math.abs(tgt.y-d.y)<1,dh=Math.hypot(tgt.x-d.x,tgt.z-d.z);let to=same&&dh<3?[tgt.x,tgt.z]:flowTarget(d.x,d.y,d.z);if(!to&&same&&dh<14)to=[tgt.x,tgt.z];if(!to)continue;
+  const dx=to[0]-d.x,dz=to[1]-d.z,dl=Math.hypot(dx,dz)||1,sp=Math.min(dl,DOLL_SPD*dt);moveEnt(d,dx/dl*sp,dz/dl*sp,.18);
+  d.y=groundAt(d.x,d.z,d.y+.45);d.k=lvIdx(d.y);d.ry=Math.atan2(dx,dz)+Math.PI*.5;}}
+{const _ss2=simStep;simStep=function(W,dt,players){_ss2(W,dt,players);if(MAPCUR!=='m'||W.st!==1)return;try{stepPaint(W,dt,players||[]);stepDolls(W,dt,players||[]);}catch(e){if(!M.dpErr){M.dpErr=1;console.warn('dolls',e);}}};}
+// shots on a doll: two break it
+{const _sal=simApplyLamp;simApplyLamp=function(W,key,lq){_sal(W,key,lq);if(!lq||lq.r!==W.run||!Array.isArray(lq.q)||MAPCUR!=='m')return;const seen=W.dqS||(W.dqS={});
+  for(const a of lq.q){if(a[1]!=='dshot')continue;const n=a[0];if(n<=(seen[key]||0))continue;seen[key]=n;const d=hostDolls(W)[a[2]];if(!d||d.st!==0)continue;if(--d.hp<=0)d.st=2;}};}
+{const _pw3=packW;packW=function(W){const s=_pw3(W);if(MAPCUR==='m'){const r1=v=>Math.round(v*10);
+  if(W.dolls)s.dl=W.dolls.map(d=>[d.st,r1(d.x),r1(d.y),r1(d.z),Math.round(d.ry*100),d.blood,d.kind]);if(W.stb)s.stb=W.stb;if(W.pw)s.pw=W.pw;}return s;};}
+{const _aw3=adoptW;adoptW=function(S0,pr){const W=_aw3(S0,pr);if(S0&&S0.mp==='m'){if(S0.dl)W.dolls=S0.dl.map(q=>({st:q[0],x:q[1]/10,y:q[2]/10,z:q[3]/10,k:lvIdx(q[2]/10),ry:q[4]/100,blood:q[5],kind:q[6],hp:DOLL_HP,t:20}));
+  W.stb=S0.stb||{};W.pw=S0.pw||{};}return W;};}
+// ---- your side: the wound
+P.wound=0;P.woundMiss=1;const STB={seen:null,run:-1},PWS={};
+function stabbed(x,z,kind){P.wound=(P.wound||0)+(kind==='g'?1/3:1);P.woundMiss=Math.max(STAB_MIN,100-Math.max(1,P.hp-Math.max(STAB_MIN,P.hp*STAB_K)));P.grab={t:kind==='p'?.85:.35,x:P.x,z:P.z,ax:x,az:z};
+  stabSfx();}
+function stabSfx(){if(!AC||!noiseBuf)return;try{const t=AC.currentTime,s=AC.createBufferSource(),f=AC.createBiquadFilter(),g=AC.createGain();s.buffer=noiseBuf;f.type='bandpass';f.frequency.value=1600;f.Q.value=2;
+  g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.7,t+.02);g.gain.exponentialRampToValueAtTime(.001,t+.22);s.connect(f);f.connect(g);g.connect(sfxBus||AC.destination);s.start(t);s.stop(t+.25);}catch(e){}}
+function creakAt(x,z){if(!AC||!noiseBuf)return;try{const d=Math.hypot(x-P.x,z-P.z);if(d>14)return;const t=AC.currentTime,o=AC.createOscillator(),g=AC.createGain();o.type='sawtooth';o.frequency.setValueAtTime(95,t);o.frequency.linearRampToValueAtTime(62,t+.45);
+  g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.12*(1-d/14),t+.05);g.gain.exponentialRampToValueAtTime(.001,t+.5);o.connect(g);g.connect(sfxBus||AC.destination);o.start(t);o.stop(t+.55);}catch(e){}}
+// the doll pieces you see, and the arm out of the frame
+const DOLLM=[];
+function dollMat(kind,blood){const n=['doll_cream','doll_pink'][kind];return mmat(blood?'f_'+n+'_b':'f_'+n+'_0',0xd8d0c8,{alpha:true,side:1,clamp:true});}
+function armMesh(){const g=new THREE.Group(),sleeve=new THREE.Mesh(new THREE.CylinderGeometry(.05,.065,.62,10),lam(0x141012));sleeve.rotation.x=Math.PI/2;sleeve.position.z=.31;g.add(sleeve);
+  const cuff=new THREE.Mesh(new THREE.CylinderGeometry(.055,.055,.05,10),lam(0x4a4640));cuff.rotation.x=Math.PI/2;cuff.position.z=.62;g.add(cuff);
+  const hand=new THREE.Mesh(new THREE.SphereGeometry(.05,10,8),lam(0x5e6056));hand.scale.set(.85,.62,1.25);hand.position.z=.69;g.add(hand);
+  const blade=new THREE.Mesh(new THREE.BoxGeometry(.012,.035,.26),new THREE.MeshPhongMaterial({color:0x6e7276,shininess:40,specular:0x444444}));blade.position.set(0,-.02,.86);g.add(blade);
+  scene.add(g);return g;}
+const ARMS=[];
+function dpApply(s){
+  // the wound and the grab
+  const mine=s.stb&&s.stb[myKey()];if(STB.run!==P.run){STB.run=P.run;STB.seen=mine?mine[0]:0;P.wound=0;P.grab=null;
+    for(const k in PWS)delete PWS[k];for(const k in s.stb||{})PWS['a'+k]=s.stb[k][0];for(const i in s.pw||{})PWS['c'+i]=s.pw[i];}
+  else if(mine&&mine[0]>STB.seen){const n=Math.min(4,mine[0]-STB.seen);STB.seen=mine[0];for(let j=0;j<n;j++)stabbed(mine[1]/10,mine[3]/10,mine[4]);}
+  // every stab anyone took from a painting: the arm comes out of that frame
+  for(const k in s.stb||{}){const q=s.stb[k];if(q[4]!=='p')continue;const key='a'+k;if((PWS[key]||0)>=q[0])continue;PWS[key]=q[0];const pt=M.paintings[q[5]];if(!pt)continue;
+    const R=REACHER[pt.n]||[.5,.4],[w,h,cy]=HANG[pt.n],lx=Math.cos(pt.ry),lz=-Math.sin(pt.ry),u=(R[0]-.5)*w,v=(.5-R[1])*h;
+    const ox=pt.x+lx*u+Math.sin(pt.ry)*.04,oz=pt.z+lz*u+Math.cos(pt.ry)*.04,oy=LVY[pt.k]+cy+v,victim=k===myKey()?P:(()=>{const sp=squadPeers().find(p=>'q'+p.presence.rid===k);return sp&&RM[sp.peer];})();
+    ARMS.push({g:armMesh(),t:0,ox,oy,oz,tx:victim?victim.x:ox+Math.sin(pt.ry),ty:(victim?victim.y:LVY[pt.k])+1.25,tz:victim?victim.z:oz+Math.cos(pt.ry)});}
+  // the frames that creaked
+  for(const i in s.pw||{}){if((PWS['c'+i]||0)>=s.pw[i])continue;PWS['c'+i]=s.pw[i];const pt=M.paintings[i];if(pt)creakAt(pt.x,pt.z);}
+  // the dolls where they lie
+  const dl=s.dl||[];while(DOLLM.length<dl.length)DOLLM.push(null);
+  dl.forEach((q,i)=>{let m=DOLLM[i];const [st,x,y,z,ry,blood,kind]=q;
+    if(st!==0){if(m){if(st===2)burst(m.position.x,m.position.y+.1,m.position.z,26,shardM,3,.04);scene.remove(m);DOLLM[i]=null;}return;}
+    if(!m||m.userData.b!==blood||m.userData.k!==kind){if(m)scene.remove(m);const n=['doll_cream','doll_pink'][kind],asp=kind?.526:.495,H=.5;
+      m=new THREE.Mesh(new THREE.PlaneGeometry(H*asp,H),dollMat(kind,blood));m.userData={b:blood,k:kind};m.rotation.order='YXZ';scene.add(m);DOLLM[i]=m;}
+    m.position.set(x/10,y/10+.025,z/10);m.rotation.set(-Math.PI/2+.12,ry/100,.5);});}
+{const _os3=onSnapshot;onSnapshot=function(s){const r=_os3(s);try{if(s&&MAPCUR==='m'&&M.paintings)dpApply(s);}catch(e){if(!M.dpErr2){M.dpErr2=1;console.warn('dolls',e);}}return r;};}
+// dolls are hit by bullets too
+{const _rp2=rayProp;rayProp=function(ox,oy,oz,dx,dy,dz,maxT){let r=_rp2(ox,oy,oz,dx,dy,dz,maxT);if(MAPCUR!=='m')return r;const lim=r?r.t:maxT;
+  DOLLM.forEach((m,i)=>{if(!m)return;const t=raySphere(ox,oy,oz,dx,dy,dz,m.position.x,m.position.y+.06,m.position.z,.2);if(t>0&&t<lim&&(!r||t<r.t))r={i:'D'+i,t};});return r;};}
+{const _hp2=hitProp;hitProp=function(i,dmg,x,y,z){if(typeof i==='string'&&i[0]==='D'){lampAct('dshot',+i.slice(1));burst(x,y,z,6,shardM,2.5,.04);SFX.hit();return;}return _hp2(i,dmg,x,y,z);};}
+// every frame: the sinking aim, the grab, the arms
+function dpFrame(dt){if(MAPCUR!=='m')return;
+  if(!P.alive||P.hp>=99.5){P.wound=0;}
+  if(P.wound>0&&P.alive&&inGame()&&!paused){const missing=Math.max(0,100-P.hp),ease=.4+.6*Math.min(1,missing/Math.max(1,P.woundMiss));
+    P.pitch=Math.max(-1.45,P.pitch-DROOP*P.wound*ease*(P.ads>.5?1.25:1)*dt);}
+  if(P.grab){const G=P.grab;G.t-=dt;P.x=G.x;P.z=G.z;const want=Math.atan2(-(G.ax-P.x),-(G.az-P.z));let d=want-P.yaw;d=Math.atan2(Math.sin(d),Math.cos(d));P.yaw+=d*Math.min(1,dt*9);if(G.t<=0)P.grab=null;}
+  for(let i=ARMS.length-1;i>=0;i--){const A=ARMS[i];A.t+=dt;const T=A.t,out=T<.25?T/.25:T<.75?1:Math.max(0,1-(T-.75)/.35);
+    const dx=A.tx-A.ox,dy=A.ty-A.oy,dz=A.tz-A.oz,L=Math.hypot(dx,dy,dz)||1,reach=Math.min(.9,L)*out+(T>.4&&T<.6?.12:0);
+    A.g.position.set(A.ox,A.oy,A.oz);A.g.lookAt(A.ox+dx,A.oy+dy,A.oz+dz);A.g.scale.set(1,1,Math.max(.01,reach/.9));if(T>1.15){scene.remove(A.g);ARMS.splice(i,1);}}}
+{const _lt4=lookTick;lookTick=function(dt){_lt4(dt);try{dpFrame(dt);}catch(e){if(!M.dpErr3){M.dpErr3=1;console.warn('dolls',e);}}};}
+// the gun hangs lower and tilts while you're wounded
+{const _mr=mainRender;mainRender=function(){if(!(MAPCUR==='m'&&P.wound>0&&VM&&VM.g))return _mr();const k=Math.min(1,.45+.15*P.wound),g=VM.g,py=g.position.y,rx=g.rotation.x,rz=g.rotation.z;
+  g.position.y-=.05*k;g.rotation.x-=.16*k;g.rotation.z+=.1*k;try{return _mr();}finally{g.position.y=py;g.rotation.x=rx;g.rotation.z=rz;}};}
+/* ================= SECRET PASSAGES =================
+   Five ladder shafts hidden in the house's thick walls (from the plans); two of them are live each run, the others are just wall.
+   Nothing marks a panel: press Use against the right stretch of wall and it gives, and you're inside. In the shaft, climb up or down
+   ([W]/[S], or the left stick) and step out ([F]) on any floor the shaft opens onto. A panel swings shut behind you.
+   The horde can't follow, unless a brute saw you go in: it comes to the panel and smashes it open, and from then on the whole shaft
+   is a way through for every zombie. Only the kitchen passage reaches the cellar. The host decides; everyone sees the same panels. */
+const SH_CLIMB=1.6,SH_SMASH=3,SH_SHUT=2;
+M.shafts=[];
+// (run inside grid: picks the wall cell each shaft runs up through, and the cell in front of every panel)
+function findShafts(L,wall){M.shafts=[];M.shOcc=[];const FLK={cellar:0,ground:1,upper:2,attic:3};
+  const room=(k,x,z)=>M.rooms.find(r=>r.k===k&&x>=r.X0&&x<r.X1&&z>=r.Z0&&z<r.Z1);
+  const isDoor=(k,x,z)=>M.doorCells.some(D=>D.k===k&&D.cells.some(c=>c[0]===x&&c[1]===z));
+  for(const p of PLAN.passages){const ex=Object.entries(p.exits).map(([f,id])=>({k:FLK[f],id})),ks=ex.map(e=>e.k),k0=Math.min(...ks),k1=Math.max(...ks);
+    const cx=Math.floor(p.x+O),cz=Math.floor(p.y+O);let best=null;
+    for(let dx=-2;dx<=2;dx++)for(let dz=-2;dz<=2;dz++){const x=cx+dx,z=cz+dz;if(!inHouse(x,z))continue;const i=idx(x,z);if(stA[i]>=0)continue;let forced=0,ok=true;const outs=[];
+      for(let k=k0;k<=k1&&ok;k++){if(isDoor(k,x,z)){ok=false;break;}if(!L[k].solid[i]){const r=room(k,x,z);if(!r||x===r.X0||z===r.Z0)ok=false;forced++;}
+        const e=ex.find(q=>q.k===k);if(!e)continue;
+        const n=[[1,0],[-1,0],[0,1],[0,-1]].map(([a,b])=>[x+a,z+b,a,b]).find(([nx,nz])=>{const j=idx(nx,nz),r=room(k,nx,nz);return r&&r.id===e.id&&!L[k].solid[j]&&stA[j]<0&&!isDoor(k,nx,nz);});
+        if(!n)ok=false;else outs.push({k,cell:[n[0],n[1]],nx:n[2],nz:n[3]});}
+      if(!ok)continue;const sc=forced*3+Math.hypot(dx,dz);if(!best||sc<best.sc)best={sc,x,z,outs};}
+    if(!best){console.warn('passage',p.k,'has no wall to run through');continue;}
+    for(let k=k0;k<=k1;k++)if(!L[k].solid[idx(best.x,best.z)])wall(k,best.x,best.z);
+    M.shafts.push({key:p.k,name:p.name,x:best.x,z:best.z,k0,k1,ex:best.outs});
+    for(const e of best.outs){const [nx,nz]=e.cell;M.shOcc.push({k:e.k,a:[Math.min(nx,nx+e.nx)-.2,Math.min(nz,nz+e.nz)-.2,Math.max(nx,nx+e.nx)+1.2,Math.max(nz,nz+e.nz)+1.2]});}}}
+// the shafts seen from inside: soot-black brick, an iron ladder; and each panel, which shows only when it's open or smashed
+function shaftLook(){for(const S_ of M.shafts){const y0=LVY[S_.k0]+.02,y1=LVY[S_.k1]+3.0,h=y1-y0,cx=S_.x+.5,cz=S_.z+.5;
+    const m=new THREE.Mesh(new THREE.BoxGeometry(.96,h,.96),mmat('ext_brick',0x3a302a,{side:0}));m.material=m.material.clone();m.material.side=THREE.BackSide;
+    m.geometry.attributes.uv.array.forEach((v,i,a)=>{a[i]=v*(i%2?h/1.2:.8);});m.position.set(cx,y0+h/2,cz);scene.add(m);
+    const back=S_.ex[0],bx=cx-back.nx*.42,bz=cz-back.nz*.42,rungs=[];for(let y=y0+.25;y<y1;y+=.3)rungs.push([bx,y,bz,back.nz?.5:.04,.035,back.nx?.5:.04,0x2a2622]);
+    for(const s of [-1,1])rungs.push([bx+back.nz*.24*s,y0+h/2,bz+back.nx*.24*s,.04,h,.04,0x2a2622]);instanced(rungs,lam(0xffffff));
+    for(const e of S_.ex){const [nx,nz]=e.cell,fx=S_.x+.5+e.nx*.5+e.nx*.012,fz=S_.z+.5+e.nz*.5+e.nz*.012,ry=Math.atan2(e.nx,e.nz),Y=LVY[e.k];
+      const hole=new THREE.Mesh(new THREE.PlaneGeometry(.86,2.05),new THREE.MeshBasicMaterial({color:0x050404}));hole.position.set(fx,Y+1.03,fz);hole.rotation.y=ry;hole.visible=false;scene.add(hole);
+      const t=wallOf(roomAtK(e.k,nx,nz)),leaf=new THREE.Mesh(new THREE.PlaneGeometry(.86,2.05),mmat(t[0],t[2]));leaf.material=leaf.material.clone();leaf.material.side=THREE.DoubleSide;
+      const piv=new THREE.Group();piv.position.set(fx+Math.cos(ry)*-.43,Y+1.03,fz-Math.sin(ry)*-.43);piv.rotation.y=ry;leaf.position.x=.43;piv.add(leaf);piv.visible=false;scene.add(piv);
+      e.hole=hole;e.piv=piv;e.fx=fx;e.fz=fz;e.ry=ry;}}}
+// ---- host
+function hostPass(W){if(W.pass)return W.pass;
+  for(const [p,q] of M.shLinks||[]){if(links[p]===q)links[p]=-1;if(links2[p]===q)links2[p]=-1;}M.shLinks=[];
+  const live=shuffle(M.shafts.map((_,i)=>i)).slice(0,2);W.pass={live,pan:{},shut:{},inP:{}};return W.pass;}
+function smashPanel(W,si,k){const P_=hostPass(W),key=si+':'+k;if(P_.pan[key]===2)return;P_.pan[key]=2;const S_=M.shafts[si],e=S_.ex.find(q=>q.k===k);if(e)addNoise(W,e.cell[0]+.5,LVY[k],e.cell[1]+.5,18,'boom');
+  // the whole shaft is a way through now: every floor's panel cell joined to the next one up
+  const ex=S_.ex.slice().sort((a,b)=>a.k-b.k);for(let i=0;i+1<ex.length;i++){const a=idx(...ex[i].cell)+ex[i].k*N,b=idx(...ex[i+1].cell)+ex[i+1].k*N;addLink(a,b);M.shLinks.push([a,b],[b,a]);}}
+function simApplyPass(W,key,lq){if(!lq||lq.r!==W.run||!Array.isArray(lq.q)||MAPCUR!=='m')return;const P_=hostPass(W),seen=W.psS||(W.psS={});
+  for(const a of lq.q){if(a[1]!=='pin'&&a[1]!=='pout')continue;const n=a[0];if(n<=(seen[key]||0))continue;seen[key]=n;const si=a[2],k=a[3];if(!P_.live.includes(si))continue;
+    if(a[1]==='pin'){P_.inP[key]=[si,k];if(P_.pan[si+':'+k]!==2){P_.pan[si+':'+k]=1;P_.shut[si+':'+k]=SH_SHUT;}
+      // a brute that sees you slip in remembers where
+      const pl=(W._players||[]).find(q=>q.key===key),e=M.shafts[si].ex.find(q=>q.k===k);
+      if(pl&&e)for(const z of W.zs){if(z.type!==2||Math.abs(z.y-pl.y)>1.5)continue;const dx=pl.x-z.x,dz=pl.z-z.z,d=Math.hypot(dx,dz);if(d>26)continue;
+        if(wallHit(z.x,z.y+1.7,z.z,dx/d,0,dz/d,d)<d-.6)continue;z.smash={si,k,t:0};}}
+    else{delete P_.inP[key];if(P_.pan[si+':'+k]!==2){P_.pan[si+':'+k]=1;P_.shut[si+':'+k]=SH_SHUT;}}}}
+{const _sal2=simApplyLamp;simApplyLamp=function(W,key,lq){_sal2(W,key,lq);simApplyPass(W,key,lq);};}
+// the brute goes to the panel it saw and beats on it
+{const _bw=bruteWindow;bruteWindow=function(W,z,dt,alive){if(MAPCUR==='m'&&z.smash){const P_=hostPass(W),s=z.smash,e=M.shafts[s.si].ex.find(q=>q.k===s.k);
+    if(!e||P_.pan[s.si+':'+s.k]===2){z.smash=null;return _bw(W,z,dt,alive);}const tx=e.cell[0]+.5,tz=e.cell[1]+.5;
+    if(Math.hypot(tx-z.x,tz-z.z)<1.3){s.t+=dt;z.atk=1;if(s.t>=SH_SMASH){smashPanel(W,s.si,s.k);z.smash=null;}return [tx,tz];}
+    s.give=(s.give||0)+dt;if(s.give>40){z.smash=null;return _bw(W,z,dt,alive);}return [tx,tz];}return _bw(W,z,dt,alive);};}
+// through a smashed shaft the horde climbs: a zombie at a panel whose way on is another floor goes up (or down) the ladder
+{const _ft2=flowTarget;flowTarget=function(x,y,z){const r=_ft2(x,y,z);if(!r||MAPCUR!=='m'||!M.shLinks||!M.shLinks.length)return r;
+  const here=Math.floor(x)+Math.floor(z)*MW;for(const S_ of M.shafts)for(const e of S_.ex){if(idx(...e.cell)!==here)continue;
+    if(S_.ex.some(o=>o!==e&&Math.floor(r[0])===o.cell[0]&&Math.floor(r[1])===o.cell[1]&&o.k!==lvIdx(y)))return [e.cell[0]+.5,e.cell[1]+.5,1];}return r;};}
+function stepPass(W,dt,players){const P_=hostPass(W);W._players=players;
+  for(const k in P_.shut){P_.shut[k]-=dt;if(P_.shut[k]<=0){delete P_.shut[k];if(P_.pan[k]===1)delete P_.pan[k];}}
+  for(const key in P_.inP)if(!players.some(p=>p.key===key&&p.alive))delete P_.inP[key];
+  if(!M.shLinks||!M.shLinks.length)return;
+  for(const z of W.zs){if(z.type>=5)continue;if(z.shT>0){z.shT-=dt;const s=z.shTo;z.x=s.fx;z.z=s.fz;if(z.shT<=0){z.x=s.x;z.z=s.z;z.y=s.y;z.shTo=null;}continue;}
+    for(let si=0;si<M.shafts.length;si++){const S_=M.shafts[si];if(!S_.ex.some(e=>P_.pan[si+':'+e.k]===2))continue;
+      for(const e of S_.ex){if(Math.hypot(e.cell[0]+.5-z.x,e.cell[1]+.5-z.z)>.6||Math.abs(LVY[e.k]-z.y)>.8)continue;const t=_ftRaw(z.x,z.y,z.z);if(!t)continue;
+        const o=S_.ex.find(q=>q!==e&&Math.floor(t[0])===q.cell[0]&&Math.floor(t[1])===q.cell[1]);if(!o)continue;
+        z.shT=SH_CLIMB*Math.abs(o.k-e.k);z.shTo={x:o.cell[0]+.5,z:o.cell[1]+.5,y:LVY[o.k],fx:z.x,fz:z.z};P_.pan[si+':'+o.k]=2;break;}}}}
+const _ftRaw=(x,y,z)=>{const n=nodeOf(x,y+.1,z);if(n<0||fdist[n]===65535)return null;let best=-1,bd=fdist[n];for(const lk of [links[n],links2[n]])if(lk>=0&&fdist[lk]<bd){bd=fdist[lk];best=lk;}
+  if(best<0)return null;const bi=best%N;return [(bi%MW)+.5,Math.floor(bi/MW)+.5];};
+{const _ss3=simStep;simStep=function(W,dt,players){_ss3(W,dt,players);if(MAPCUR!=='m'||W.st!==1)return;try{stepPass(W,dt,players||[]);}catch(e){if(!M.psErr){M.psErr=1;console.warn('passages',e);}}};}
+{const _pw4=packW;packW=function(W){const s=_pw4(W);if(MAPCUR==='m'&&W.pass){if(Object.keys(W.pass.pan).length)s.pn=W.pass.pan;if(Object.keys(W.pass.inP).length)s.ip=W.pass.inP;}return s;};}
+{const _aw4=adoptW;adoptW=function(S0,pr){const W=_aw4(S0,pr);if(S0&&S0.mp==='m'&&(S0.pn||S0.ip)){const P_=hostPass(W);P_.pan=Object.assign({},S0.pn||{});P_.inP=Object.assign({},S0.ip||{});
+  const L_=new Set([...Object.keys(P_.pan),...Object.values(P_.inP).map(v=>v[0]+':'+v[1])].map(k=>+k.split(':')[0]));if(L_.size)P_.live=[...L_,...P_.live.filter(i=>!L_.has(i))].slice(0,2);}return W;};}
+// ---- your side: in the shaft
+const PASS={on:false,si:-1,k:0,y:0,to:null,t:0,wait:0};
+function panelNear(){if(!P.alive)return null;const k=lvIdx(P.y),lx=-Math.sin(P.yaw),lz=-Math.cos(P.yaw);let best=null,bd=1.15;
+  M.shafts.forEach((S_,si)=>{for(const e of S_.ex){if(e.k!==k)continue;const dx=e.fx-P.x,dz=e.fz-P.z,d=Math.hypot(dx,dz);if(d>bd)continue;if((lx*dx+lz*dz)/(d||1)<.45)continue;bd=d;best={si,k};}});return best;}
+function passApply(s){const me=s.ip&&s.ip[myKey()];
+  if(me&&!PASS.on&&PASS.wait>0){const S_=M.shafts[me[0]];Object.assign(PASS,{on:true,si:me[0],k:me[1],y:LVY[me[1]],to:null,t:0,wait:0});sfxAt('creak',S_.x+.5,S_.z+.5,.6);}
+  // the panels: open, swinging shut, or smashed
+  for(const S_ of M.shafts)for(const e of S_.ex){const st=s.pn?s.pn[M.shafts.indexOf(S_)+':'+e.k]:0;if(!e.piv)continue;
+    if(st===2&&!e.smashed){e.smashed=1;burst(e.fx,LVY[e.k]+1.1,e.fz,30,splinterM,5,.12);sfxAt('smash',e.fx,e.fz,1.2);}
+    if(!st&&e.smashed&&!s.pn)e.smashed=0;
+    e.hole.visible=st===1||st===2;e.piv.visible=st===1;e.open=st===1;}}
+{const _os4=onSnapshot;onSnapshot=function(s){const r=_os4(s);try{if(s&&MAPCUR==='m'&&M.shafts.length){if(s.r!==PASS.run){PASS.run=s.r;PASS.on=false;PASS.wait=0;}passApply(s);}}catch(e){if(!M.psErr2){M.psErr2=1;console.warn('passages',e);}}return r;};}
+function passStepOut(){const S_=M.shafts[PASS.si],e=S_.ex.find(q=>q.k===PASS.k);if(!e)return;lampAct('pout',PASS.si,PASS.k);PASS.on=false;
+  P.x=e.cell[0]+.5;P.z=e.cell[1]+.5;P.y=LVY[e.k];P.vy=0;P.yaw=Math.atan2(-e.nx,-e.nz);P.pitch=0;}
+{const _up2=usePress;usePress=function(){if(MAPCUR==='m'&&inGame()&&P.alive){
+    if(PASS.on){if(!PASS.to)passStepOut();return;}
+    if(heldLamp()<0&&!nearInteract()&&!DARK.near){const pn=panelNear();if(pn){lampAct('pin',pn.si,pn.k);PASS.wait=2;}}}
+  return _up2();};}
+{const _fi2=fire;fire=function(){if(PASS.on)return;return _fi2();};}
+{const _dp2=darkPrompt;darkPrompt=function(verb,t){if(MAPCUR==='m'&&PASS.on&&inGame()){const S_=M.shafts[PASS.si],pad=lastInput==='pad',up=PASS.k<S_.k1,dn=PASS.k>S_.k0,out=S_.ex.some(e=>e.k===PASS.k);
+    if(PASS.to)return [PASS.to>PASS.k?'Climbing…':'Climbing down…',true];
+    const parts=[];if(up)parts.push((pad?'(Left stick up)':'[W]')+' Climb up');if(dn)parts.push((pad?'(Left stick down)':'[S]')+' Climb down');if(out)parts.push((pad?'('+padBtn('use')+')':isTouch?'USE':'[F]')+' Step out');
+    return [parts.join(' · '),false];}return _dp2(verb,t);};}
+function passFrame(dt){if(MAPCUR!=='m')return;PASS.wait=Math.max(0,PASS.wait-dt);
+  for(const S_ of M.shafts)for(const e of S_.ex)if(e.piv&&e.open)e.piv.rotation.y=e.ry+Math.min(1.5,(e.piv.userData.a=(e.piv.userData.a||0)+dt*4));else if(e.piv)e.piv.userData.a=0;
+  if(!PASS.on)return;if(!P.alive||!inGame()){PASS.on=false;return;}const S_=M.shafts[PASS.si];
+  // climbing: forward or the stick up for up, back or the stick down for down
+  let ax=0;try{const gp=navigator.getGamepads&&navigator.getGamepads()[0];if(gp)ax=gp.axes[1]||0;}catch(e){}
+  const wantUp=keys[BIND.kb.fwd]||ax<-.5,wantDn=keys[BIND.kb.back]||ax>.5;
+  if(!PASS.to){if(wantUp&&PASS.k<S_.k1){PASS.to=PASS.k+1;PASS.t=0;}else if(wantDn&&PASS.k>S_.k0){PASS.to=PASS.k-1;PASS.t=0;}}
+  if(PASS.to!=null){PASS.t+=dt/SH_CLIMB;const a=LVY[PASS.k],b=LVY[PASS.to];PASS.y=a+(b-a)*Math.min(1,PASS.t);if(Math.random()<dt*3)sfxAt('creak',S_.x+.5,S_.z+.5,.25);
+    if(PASS.t>=1){PASS.k=PASS.to;PASS.to=null;PASS.y=LVY[PASS.k];}}
+  // held in the shaft: no walking out through the brick
+  P.x=S_.x+.5;P.z=S_.z+.5;P.y=PASS.y;P.vy=0;}
+{const _lt5=lookTick;lookTick=function(dt){_lt5(dt);try{passFrame(dt);}catch(e){if(!M.psErr3){M.psErr3=1;console.warn('passages',e);}}};}
+M.PASS=PASS;M.panelNear=()=>panelNear();
+/* ================= THE BALCONY =================
+   You can walk out onto it from the upper hallway, or drop off the front; the horde can't climb up. But a brute will see you up
+   there and go for the porch pillars. It takes ten seconds of pounding in all (two brutes: five each, three: a little over three),
+   and the damage stays: a brute that's lured away and comes back carries on where it left off.
+   Lure it off (get within a few metres of it on the ground, or throw a noise maker near it) and it gives up. Leave the balcony
+   without doing that and it finishes the job anyway. When it goes, it all comes down, anyone still on it falls, and the wreckage
+   blocks the front door for the rest of the run. The host decides; everyone sees it fall. */
+const BAL_WORK=10,BAL_FALL=25,BAL_X0=35,BAL_X1=41,BAL_Z0=38,BAL_Z1=40,POSTS=[35,36,40,41];
+const onBalcony=p=>p.alive&&Math.abs(p.y-LVY[2])<.6&&p.x>=BAL_X0&&p.x<BAL_X1+1&&p.z>=BAL_Z0&&p.z<BAL_Z1+1;
+function hostBal(W){return W.bal||(W.bal={work:0,down:0,hits:0});}
+function stepBal(W,dt,players){const B=hostBal(W);if(B.down)return;const up=players.some(onBalcony);
+  for(const z of W.zs){if(z.type!==2)continue;
+    if(!z.pound){if(!up||Math.hypot(z.x-38.5,z.z-40)>32)continue;let bd=1e9;for(const x of POSTS){const d=Math.hypot(z.x-(x+.5),z.z-41.3);if(d<bd){bd=d;z.pound={x:x+.5,z:41.3};}}continue;}
+    // lured off: a player close to it on the ground, or a noise maker nearby (only once nobody's left up there)
+    if(!up){if(players.some(p=>p.alive&&!onBalcony(p)&&Math.abs(p.y-z.y)<1.5&&Math.hypot(p.x-z.x,p.z-z.z)<6)||W.makers.some(m=>Math.hypot(m.x-z.x,m.z-z.z)<12)){z.pound=null;continue;}}}
+  // the pounding itself happens in the brute's own step (bruteWindow below); here the work is added up
+  if(B.work>=BAL_WORK){B.down=1;for(const p of players)if(onBalcony(p))W.taken[p.key]=(W.taken[p.key]||0)+BAL_FALL;
+    for(const z of W.zs)z.pound=null;addNoise(W,38.5,0,40,30,'boom');balGrid(true);}}
+{const _bw2=bruteWindow;bruteWindow=function(W,z,dt,alive){if(MAPCUR==='m'&&z.pound&&!z.smash){const B=hostBal(W);if(B.down){z.pound=null;return _bw2(W,z,dt,alive);}
+    if(Math.hypot(z.pound.x-z.x,z.pound.z-z.z)<1.4){B.work+=dt;z.atk=1;B.hits+=dt;return [z.pound.x,z.pound.z-.6];}return [z.pound.x,z.pound.z];}return _bw2(W,z,dt,alive);};}
+{const _ss4=simStep;simStep=function(W,dt,players){_ss4(W,dt,players);if(MAPCUR!=='m'||W.st!==1)return;try{stepBal(W,dt,players||[]);}catch(e){if(!M.blErr){M.blErr=1;console.warn('balcony',e);}}};}
+// the grid: the balcony's floor and railing gone, the wreck across the front door (and back again for a new run)
+let BALG=null;
+function balGrid(down){const L2=LEVELS[2],L1=LEVELS[1];
+  if(down&&!BALG){BALG=[];const put=(L,x,z,solid,kind,fl)=>{const i=idx(x,z);BALG.push([L,i,L.solid[i],L.kind[i],L.floor?L.floor[i]:null]);L.solid[i]=solid;L.kind[i]=kind;if(L.floor&&fl!=null)L.floor[i]=fl;};
+    for(let x=BAL_X0;x<=BAL_X1;x++)for(let z=BAL_Z0;z<=BAL_Z1;z++)put(L2,x,z,0,0,0);
+    for(let x=37;x<=40;x++)put(L1,x,38,1,K.CAR,null);for(const x of [37,40])put(L1,x,39,1,K.BARREL,null);
+    if(M.balSlab){M.balSlab.visible=false;M.balRail.visible=false;M.balPosts.visible=false;M.balDebris.visible=true;}}
+  else if(!down&&BALG){for(const [L,i,s_,k,f] of BALG.reverse()){L.solid[i]=s_;L.kind[i]=k;if(L.floor&&f!=null)L.floor[i]=f;}BALG=null;
+    if(M.balSlab){M.balSlab.visible=true;M.balRail.visible=true;M.balPosts.visible=true;M.balDebris.visible=false;}}}
+{const _pw5=packW;packW=function(W){const s=_pw5(W);if(MAPCUR==='m'&&W.bal&&(W.bal.work>0||W.bal.down))s.bl=[Math.round(W.bal.work*10),W.bal.down];return s;};}
+{const _aw5=adoptW;adoptW=function(S0,pr){const W=_aw5(S0,pr);if(S0&&S0.mp==='m'&&S0.bl)W.bal={work:S0.bl[0]/10,down:S0.bl[1],hits:0};return W;};}
+// what you see: the pillars shake and shed plaster as they're hit; then it falls
+const BALC={run:-1,work:0,down:0,shake:0};
+function balApply(s){if(s.r!==BALC.run){BALC.run=s.r;BALC.work=0;BALC.down=0;balGrid(false);}
+  const [w,dn]=s.bl||[0,0];
+  if(w>BALC.work+.5&&!dn){BALC.shake=.35;const x=POSTS[(Math.random()*4)|0]+.5;burst(x,.6+Math.random()*2,40.6,8,splinterM,2.5,.08);if(Math.random()<.4)sfxAt('smash',x,40.5,.7);}
+  BALC.work=w;
+  if(dn&&!BALC.down){BALC.down=1;balGrid(true);sfxAt('smash',38.5,40,1.6);setTimeout(()=>sfxAt('smash',38.5,39,1.4),180);
+    for(let i=0;i<5;i++)burst(36+Math.random()*5,1+Math.random()*2.5,38.5+Math.random()*2.5,30,splinterM,6,.14);toast('','The balcony comes down across the front door');}}
+{const _os5=onSnapshot;onSnapshot=function(s){const r=_os5(s);try{if(s&&MAPCUR==='m'&&M.balSlab)balApply(s);}catch(e){if(!M.blErr2){M.blErr2=1;console.warn('balcony',e);}}return r;};}
+function balFrame(dt){if(MAPCUR!=='m'||!M.balPosts||BALC.down)return;BALC.shake=Math.max(0,BALC.shake-dt);const k=BALC.shake>0?Math.sin(performance.now()/18)*.012:0;M.balPosts.position.x=k;M.balSlab.position.x=k*.6;M.balRail.position.x=k*.6;}
+{const _lt6=lookTick;lookTick=function(dt){_lt6(dt);try{balFrame(dt);}catch(e){}};}
+// back on the cul-de-sac the balcony stands again, ready for the next time
+{const _sm=setMap;setMap=function(mp){if(mp!=='m')balGrid(false);return _sm(mp);};}
+/* ================= THE LORD'S KEY =================
+   The key is always in the same place: inside the globe in the Lord's study. Use the globe and it opens (and stays open) and the
+   key is yours. Carry it down to the iron-bound door at the end of the dead-end passage in the cellar and Use it there: the lock
+   turns, the door swings in, and it stays open for the rest of the run. Whoever holds the key and falls drops it where they fell;
+   anyone can pick it up. The room behind is the Lord's own. The host keeps track of the key; everyone sees the same. */
+const IRON={x:39,z:35,k:0},IRON_USE=[38.5,35.5];
+function hostKey(W){return W.key||(W.key={st:0,h:null,x:0,y:0,z:0});}
+function ironGrid(open){const L=LEVELS[0],i=idx(IRON.x,IRON.z);if(open){if(!M.ironWas)M.ironWas=[L.solid[i],L.kind[i]];L.solid[i]=0;L.kind[i]=0;}else if(M.ironWas){L.solid[i]=M.ironWas[0];L.kind[i]=M.ironWas[1];M.ironWas=null;}}
+function simApplyKey(W,key,lq){if(!lq||lq.r!==W.run||!Array.isArray(lq.q)||MAPCUR!=='m')return;const K_=hostKey(W),seen=W.kyS||(W.kyS={});
+  for(const a of lq.q){if(a[1]!=='gtake'&&a[1]!=='kpick'&&a[1]!=='kuse')continue;const n=a[0];if(n<=(seen[key]||0))continue;seen[key]=n;
+    if(a[1]==='gtake'&&K_.st===0){K_.st=1;K_.h=key;K_.globe=1;}
+    else if(a[1]==='kpick'&&K_.st===2){K_.st=1;K_.h=key;}
+    else if(a[1]==='kuse'&&K_.st===1&&K_.h===key){K_.st=3;K_.h=null;ironGrid(true);addNoise(W,IRON.x,LVY[0],IRON.z,14,'creak');}}}
+{const _sal3=simApplyLamp;simApplyLamp=function(W,key,lq){_sal3(W,key,lq);simApplyKey(W,key,lq);};}
+function stepKey(W,dt,players){const K_=hostKey(W);if(K_.st!==1)return;const p=players.find(q=>q.key===K_.h);
+  if(!p||!p.alive){K_.st=2;K_.h=null;if(p){K_.x=p.x;K_.y=groundAt(p.x,p.z,p.y+.5);K_.z=p.z;}else{K_.x=48.5;K_.y=0;K_.z=22.5;}}}
+{const _ss5=simStep;simStep=function(W,dt,players){_ss5(W,dt,players);if(MAPCUR!=='m'||W.st!==1)return;try{stepKey(W,dt,players||[]);}catch(e){if(!M.kyErr){M.kyErr=1;console.warn('key',e);}}};}
+{const _pw6=packW;packW=function(W){const s=_pw6(W);if(MAPCUR==='m'&&W.key&&(W.key.st||W.key.globe)){const r1=v=>Math.round(v*10);s.ky=[W.key.st,W.key.h||'',r1(W.key.x),r1(W.key.y),r1(W.key.z),W.key.globe?1:0];}return s;};}
+{const _aw6=adoptW;adoptW=function(S0,pr){const W=_aw6(S0,pr);if(S0&&S0.mp==='m'&&S0.ky){const [st,h,x,y,z,g]=S0.ky;W.key={st,h:h||null,x:x/10,y:y/10,z:z/10,globe:g};if(st===3)ironGrid(true);}return W;};}
+// ---- your side
+const KEYC={run:-1,st:0,h:null,globe:0,mesh:null,open:false};
+function globeSpot(){const g=(M.furn||[]).find(p=>p.n==='globe');if(!g)return null;return {x:(g.a[0]+g.a[2])/2,z:(g.a[1]+g.a[3])/2,k:g.k,ry:g.ry};}
+function keyNear(){if(!P.alive||MAPCUR!=='m')return null;const k=lvIdx(P.y);
+  const g=globeSpot();if(g&&g.k===k&&Math.hypot(g.x-P.x,g.z-P.z)<1.5)return {t:'globe'};
+  if(KEYC.st===2&&Math.abs(KEYC.y-P.y)<1.4&&Math.hypot(KEYC.x-P.x,KEYC.z-P.z)<1.4)return {t:'key'};
+  if(k===0&&Math.hypot(IRON_USE[0]-P.x,IRON_USE[1]-P.z)<1.3)return {t:'door'};return null;}
+const myKeyHeld=()=>KEYC.st===1&&KEYC.h===myKey();
+function keyApply(s){const [st,h,x,y,z,g]=s.ky||[0,'',0,0,0,0];
+  if(s.r!==KEYC.run){KEYC.run=s.r;KEYC.st=0;KEYC.globe=0;KEYC.open=false;ironGrid(false);keyLook();}
+  const was=KEYC.st;Object.assign(KEYC,{st,h:h||null,x:x/10,y:y/10,z:z/10,globe:g});
+  if(st===1&&was!==1&&KEYC.h===myKey())toast('',was===2?'You pick up the Lord\'s key':'Inside the globe: a heavy iron key');
+  if(st===3&&!KEYC.open){KEYC.open=true;ironGrid(true);sfxAt('door',IRON.x,IRON.z,1.2);if(Math.hypot(P.x-IRON.x,P.z-IRON.z)<8)toast('','The lock turns. The iron door swings in');}
+  keyLook();}
+function keyLook(){
+  // the globe: once the key's out, it stands split open
+  if(M.globeOpen)M.globeOpen.visible=!!KEYC.globe;
+  // a dropped key on the floor
+  if(KEYC.st===2){if(!KEYC.mesh){const m=new THREE.Mesh(new THREE.PlaneGeometry(.09,.29),mmat('f_lord_key_0',0xc8c0b0,{alpha:true,side:1,clamp:true}));m.rotation.x=-Math.PI/2;scene.add(m);KEYC.mesh=m;}
+    KEYC.mesh.position.set(KEYC.x,KEYC.y+.015,KEYC.z);KEYC.mesh.visible=true;}else if(KEYC.mesh)KEYC.mesh.visible=false;
+  // the iron door: shut, or swung in against the wall of the Lord's room
+  if(M.ironCard)cardShow(M.ironCard,!KEYC.open);if(M.ironLeaf)M.ironLeaf.visible=KEYC.open;if(M.ironWay)M.ironWay.visible=KEYC.open;for(const m of M.ironWall||[])m.visible=!KEYC.open;}
+{const _os6=onSnapshot;onSnapshot=function(s){const r=_os6(s);try{if(s&&MAPCUR==='m'&&M.furn)keyApply(s);}catch(e){if(!M.kyErr2){M.kyErr2=1;console.warn('key',e);}}return r;};}
+{const _up3=usePress;usePress=function(){if(MAPCUR==='m'&&inGame()&&P.alive&&!PASS.on&&heldLamp()<0){const n=keyNear();
+    if(n){if(n.t==='globe'){if(!KEYC.globe){lampAct('gtake');vmReach&&vmReach();}else toast('','The globe stands open. Nothing left inside');return;}
+      if(n.t==='key'){lampAct('kpick');vmReach&&vmReach();return;}
+      if(n.t==='door'&&!KEYC.open){if(myKeyHeld()){lampAct('kuse');vmReach&&vmReach();}else{SFX.deny();toast('','Locked. An iron lock, and no key');}return;}}}
+  return _up3();};}
+{const _dp3=darkPrompt;darkPrompt=function(verb,t){const d=_dp3(verb,t);if(d||MAPCUR!=='m'||!inGame()||!P.alive||PASS.on)return d;const n=keyNear();if(!n)return null;
+  const use=lastInput==='pad'?'('+padBtn('use')+')':isTouch?'USE':'[F]';
+  if(n.t==='globe')return KEYC.globe?['The globe stands open',true]:[use+' Open the globe',false];
+  if(n.t==='key')return [use+' Pick up the key',false];
+  if(n.t==='door'&&!KEYC.open)return myKeyHeld()?[use+' Unlock the iron door',false]:['Locked · an iron lock',true];return null;};}
+// the globe's open look, and the iron door's open leaf (built with the house; hidden until needed)
+function keyBuild(){const g=globeSpot();if(g){const grp=new THREE.Group(),dark=new THREE.Mesh(new THREE.CircleGeometry(.24,24),new THREE.MeshBasicMaterial({color:0x0a0806,side:THREE.DoubleSide}));
+    dark.rotation.x=-Math.PI/2;grp.add(dark);const lid=new THREE.Mesh(new THREE.SphereGeometry(.25,20,10,0,Math.PI*2,0,Math.PI/2),lam(0x5a4628,{side:THREE.DoubleSide}));lid.rotation.x=-1.9;lid.position.set(0,.05,-.2);grp.add(lid);
+    grp.position.set(g.x,LVY[g.k]+.82,g.z);grp.rotation.y=g.ry;grp.visible=false;scene.add(grp);M.globeOpen=grp;}
+  const leaf=new THREE.Mesh(new THREE.PlaneGeometry(1.0,2.3),mmat('f_lord_cellar_door_0',0xffffff,{alpha:true,side:1,clamp:true}));
+  leaf.position.set(IRON.x+1.03,LVY[0]+1.16,IRON.z+1.5);leaf.rotation.y=Math.PI/2;leaf.visible=false;scene.add(leaf);M.ironLeaf=leaf;
+  // the doorway itself, for when it's open: jambs, a lintel, the flagstones underfoot
+  const g2=new THREE.Group(),pl=mmat('wall_plaster',0x6a4a40),fl=mmat('floor_flagstone',0x7a6a62),Y=LVY[0];
+  for(const z of [IRON.z,IRON.z+1]){const j=new THREE.Mesh(new THREE.PlaneGeometry(1,3.2),pl);j.material=j.material.clone();j.material.side=THREE.DoubleSide;j.position.set(IRON.x+.5,Y+1.6,z);g2.add(j);}
+  const lin=new THREE.Mesh(BOX,lam(0x2a201a));lin.scale.set(1,.9,1);lin.position.set(IRON.x+.5,Y+2.75,IRON.z+.5);g2.add(lin);
+  const fq=new THREE.Mesh(new THREE.PlaneGeometry(1,1),fl);fq.rotation.x=-Math.PI/2;fq.position.set(IRON.x+.5,Y+.005,IRON.z+.5);g2.add(fq);
+  g2.visible=false;scene.add(g2);M.ironWay=g2;}
+{const _sm2=setMap;setMap=function(mp){if(mp!=='m')ironGrid(false);return _sm2(mp);};}
+/* ================= THE POLTERGEIST (wave 3) AND THE CHILDREN =================
+   Wave 3 in the mansion has no banshee. Something unseen starts throwing the furniture instead: a piece shudders and rattles for a
+   moment (the warning), then flies at whoever it picked. After seven throws the suit of armour in the library steps down off its
+   stand with its sword and shield and comes for you; it takes damage like a brute. The wave doesn't end until it's down.
+   The children (three of the Lord's victims) turn up once a run, on one wave with no boss: standing together in some room. Come
+   close and they flicker; keep coming and they're gone, then all around you, and each of them stabs. Then they're elsewhere.
+   Only fire ends them: a grenade, or a lit lamp shot or thrown so it bursts where they stand. At the end of their wave they go. */
+const KID_STAB=.063,PG_THROWS=7,PG_WARN=1.3,KID_SCALE=.72,KID_NEAR=4.5,KID_PATIENCE=2.2,KID_KEYS=['mz_kid_green1','mz_kid_green3','mz_kid_green4'];
+const ARMOR_SPOT={x:50.6,z:31.75,k:1,ry:0};
+// ---- host: the poltergeist
+{const _sb=spawnBanshee;spawnBanshee=function(W,alive){if(MAPCUR!=='m')return _sb(W,alive);W.pg={next:2,n:0,fail:0,warn:null,armor:0,armorId:0,seq:0};};}
+{const _vh=v3Hold;v3Hold=function(W){if(MAPCUR==='m'&&W.wave===3&&W.pg&&(!W.pg.armor||W.zs.some(z=>z.id===W.pg.armorId)))return true;return _vh(W);};}
+function stepPg(W,dt,players){const G=W.pg;if(!G)return;if(W.wave!==3||W.ph!=='w'){if(W.ph!=='w')W.pg=null;return;}
+  const alive=players.filter(p=>p.alive);if(!alive.length)return;
+  if(G.warn){G.warn.t-=dt;if(G.warn.t>0)return;const w=G.warn;G.warn=null;const p=alive.find(q=>q.key===w.key)||alive[0];if(W.pst[w.i]!==0)return;
+    const pr=PROPS[w.i],sx=pr.x,sy=propBase(pr)+.9,sz=pr.z,tx=p.x,ty=p.y+1.1,tz=p.z,dist=Math.hypot(tx-sx,tz-sz),t=Math.max(.2,dist/13),g=9;
+    W.pst[w.i]=2;W.pj.push({pid:w.i,x:sx,y:sy,z:sz,vx:(tx-sx)/t,vy:(ty-sy+.5*g*t*t)/t,vz:(tz-sz)/t,life:3,dmg:PT[pr.t].dmg*waveInfo(W.wave,W.n,W.diff).dmgMul});
+    addNoise(W,sx,sy,sz,10,'boom');G.n++;G.next=2.8+Math.random()*2.8;return;}
+  if(G.n>=PG_THROWS){if(!G.armor){G.armor=1;if(simSpawn(W,2,[])!==false){const z=W.zs[W.zs.length-1];if(z&&z.type===2){z.x=ARMOR_SPOT.x;z.z=ARMOR_SPOT.z+.8;z.y=LVY[ARMOR_SPOT.k];z.armor=1;G.armorId=z.id;}}
+      addNoise(W,ARMOR_SPOT.x,0,ARMOR_SPOT.z,22,'boom');}return;}
+  G.next-=dt;if(G.next>0)return;
+  // pick someone and something near them to throw: on their floor, two to ten metres off, with a clear line to them
+  const p=pickA(alive),cand=[];for(let i=0;i<PROPS.length;i++){if(W.pst[i]!==0)continue;const pr=PROPS[i],by=propBase(pr);if(Math.abs(by-p.y)>1)continue;
+    const dx=p.x-pr.x,dz=p.z-pr.z,d=Math.hypot(dx,dz);if(d<2.5||d>10)continue;const ey=p.y+1.4,sy=by+.9,dd=Math.hypot(d,ey-sy);
+    if(wallHit(pr.x,sy,pr.z,dx/dd,(ey-sy)/dd,dz/dd,dd)<dd-.6)continue;cand.push([d,i]);}
+  if(!cand.length){G.next=1.5;if(++G.fail>12)G.n=PG_THROWS;return;}cand.sort((a,b)=>a[0]-b[0]);const i=cand[Math.floor(Math.random()*Math.min(4,cand.length))][1];
+  G.warn={i,t:PG_WARN,key:p.key};G.seq++;}
+// ---- host: the children
+function hostKids(W){if(W.gk)return W.gk;W.gk={wave:pickA([2,5,7,8]),st:0,x:0,y:0,z:0,ry:0,near:0,t:0,tgt:null,al:[1,1,1]};return W.gk;}
+function kidSpot(players){const ks=[1,2,3];for(let t=0;t<40;t++){const k=pickA(ks),rs=M.rooms.filter(r=>r.k===k&&(r.X1-r.X0)*(r.Z1-r.Z0)>=16&&!['balcony','cons','sstairs'].includes(r.id));if(!rs.length)continue;const r=pickA(rs);
+    const ix1=r.X1===HX1?r.X1-1:r.X1,iz1=r.Z1===HZ1?r.Z1-1:r.Z1,x=(r.X0+1+ix1)/2+(Math.random()-.5),z=(r.Z0+1+iz1)/2+(Math.random()-.5),i=idx(Math.floor(x),Math.floor(z));
+    if(LEVELS[k].solid[i]||stA[i]>=0)continue;if(M.furn.some(p=>!HANG[p.n]&&x>p.a[0]-.6&&x<p.a[2]+.6&&z>p.a[1]-.6&&z<p.a[3]+.6))continue;
+    if(players.some(p=>p.alive&&Math.hypot(p.x-x,p.z-z)<9))continue;return [x,LVY[k],z];}return null;}
+// where each child stands: in a huddle while they wait, round you when they come for you (the same spots you see)
+function kidPos(st,cx,cz,ry,i){if(st===2){const a=i*2.09;return [cx+Math.cos(a)*1.1,cz+Math.sin(a)*1.1];}const a=ry+i*2.3;return [cx+Math.cos(a)*.45,cz+Math.sin(a)*.45];}
+// fire or a blast ends only the ones it reaches; when the last one goes, they're gone for the run
+function kidsBurn(W,G,x,z,r){if(G.st!==1&&G.st!==2)return false;const al=G.al||(G.al=[1,1,1]),cx=G.st===2&&G.tp?G.tp.x:G.x,cz=G.st===2&&G.tp?G.tp.z:G.z;let hit=false;
+  for(let i=0;i<3;i++){if(!al[i])continue;const [kx,kz]=kidPos(G.st,cx,cz,G.ry,i);if(Math.hypot(kx-x,kz-z)>r)continue;al[i]=0;hit=true;addNoise(W,kx,G.y,kz,12,'creak');}
+  if(hit&&!al.some(Boolean))G.st=3;return hit;}
+function stepKids(W,dt,players){const G=hostKids(W);if(G.st===3||G.st===5)return;
+  if(W.wave!==G.wave){if(G.st&&W.wave>G.wave)G.st=5;return;}if(W.ph!=='w'){if(G.st)G.st=5;return;}
+  for(const F of W.fires||[])kidsBurn(W,G,F.x,F.z,FIRE_R+.7);if(G.st===3)return;
+  const alive=players.filter(p=>p.alive);
+  if(G.st===0||G.st===4){G.t-=dt;if(G.st===0&&W.waveT<12)return;if(G.t>0)return;const s=kidSpot(alive);if(!s){G.t=3;return;}Object.assign(G,{st:1,x:s[0],y:s[1],z:s[2],ry:Math.random()*6.28,near:0});return;}
+  if(G.st===1){let close=null;for(const p of alive){if(Math.abs(p.y-G.y)>1)continue;const d=Math.hypot(p.x-G.x,p.z-G.z);if(d<KID_NEAR&&(!close||d<close.d))close={p,d};}
+    G.near=close?G.near+dt:Math.max(0,G.near-dt*.5);if(G.near<KID_PATIENCE)return;
+    G.st=2;G.tgt=close.p.key;G.t=1.1;G.tp={x:close.p.x,z:close.p.z};return;}
+  if(G.st===2){const p=alive.find(q=>q.key===G.tgt);if(p)G.tp={x:p.x,z:p.z};G.t-=dt;if(G.t>0)return;
+    // each child still standing stabs once: 6.3% of your health apiece (all three about a fifth, two about an eighth); never the last point
+    if(p){const each=Math.max(0,p.hp==null?100:p.hp)*KID_STAB,al=G.al||[1,1,1];for(let i=0;i<3;i++)if(al[i]){const [kx,kz]=kidPos(2,p.x,p.z,0,i);stabPlayer(W,p,kx,p.y+1,kz,'g',i,each);}}
+    G.st=4;G.t=25+Math.random()*25;G.tgt=null;}}
+// a grenade's blast ends them too
+{const _ab=addBoom;addBoom=function(W,x,y,z){_ab(W,x,y,z);if(MAPCUR==='m'&&W.gk)kidsBurn(W,W.gk,x,z,4.5);};}
+{const _ss6=simStep;simStep=function(W,dt,players){_ss6(W,dt,players);if(MAPCUR!=='m'||W.st!==1)return;try{stepPg(W,dt,players||[]);stepKids(W,dt,players||[]);}catch(e){if(!M.pgErr){M.pgErr=1;console.warn('poltergeist',e);}}};}
+{const _pw7=packW;packW=function(W){const s=_pw7(W);if(MAPCUR!=='m')return s;
+  if(W.pg){if(W.pg.warn)s.pgw=[W.pg.warn.i,W.pg.seq];if(W.pg.armorId)s.am=W.pg.armorId;}
+  if(W.gk&&W.gk.st){const G=W.gk,r1=v=>Math.round(v*10);s.gk=[G.st,r1(G.st===2&&G.tp?G.tp.x:G.x),r1(G.y),r1(G.st===2&&G.tp?G.tp.z:G.z),Math.round(G.ry*100),G.st===2?G.tgt:'',(G.al||[1,1,1]).reduce((m,v,i)=>m|(v?1<<i:0),0)];}
+  if(W.pg&&W.pg.armor)s.ar=1;return s;};}
+{const _aw7=adoptW;adoptW=function(S0,pr){const W=_aw7(S0,pr);if(S0&&S0.mp==='m'){if(S0.w===3&&S0.ph==='w'&&(S0.am||S0.pgw||S0.ar))W.pg={next:2,n:S0.ar?PG_THROWS:0,warn:null,armor:S0.ar?1:0,armorId:S0.am||0,seq:0};
+  if(S0.gk){const [st,x,y,z,ry,,am]=S0.gk,m=am==null?7:am;W.gk={wave:S0.w,st:st===2?4:st,x:x/10,y:y/10,z:z/10,ry:ry/100,near:0,t:10,tgt:null,al:[m&1?1:0,m&2?1:0,m&4?1:0]};}}return W;};}
+// ---- what you see
+const PGC={run:-1,seq:0,shake:null,armorDone:0},KIDS={m:[],run:-1,st:0,al:7};
+function armorMesh(){const m=skinZombie(2,false,false,'mz_armor'),k=m.skin;
+  const sw=new THREE.Mesh(new THREE.PlaneGeometry(.21,.95),mmat('f_sword_0',0xc0c0c0,{alpha:true,side:1,clamp:true}));sw.position.set(0,-.42,.06);sw.rotation.x=.25;k.haL.add(sw); // the sword in its right hand (the rig's left, seen from the front)
+  const sh=new THREE.Mesh(new THREE.PlaneGeometry(.46,.84),mmat('f_shield_0',0xb8b0a8,{alpha:true,side:1,clamp:true}));sh.position.set(.09,.05,.12);sh.rotation.y=Math.PI/2-.25;k.elR.add(sh);return m;}
+M.armorMesh=()=>armorMesh();
+function armorStand(){const m=armorMesh();SKZ.delete(m);m.g.position.set(ARMOR_SPOT.x,LVY[ARMOR_SPOT.k],ARMOR_SPOT.z);m.g.rotation.y=ARMOR_SPOT.ry;scene.add(m.g);M.armorStand=m.g;
+  const base=new THREE.Mesh(BOX,lam(0x2a2018));base.scale.set(.9,.12,.7);base.position.set(ARMOR_SPOT.x,LVY[ARMOR_SPOT.k]+.06,ARMOR_SPOT.z);scene.add(base);}
+function kidMesh(key){const m=skinZombie(0,false,false,key);SKZ.delete(m);m.g.scale.setScalar(KID_SCALE);
+  m.skin.mesh.material=m.skin.mesh.material.clone();const mt=m.skin.mesh.material;mt.transparent=true;mt.opacity=.6;mt.depthWrite=false;mt.color.setHex(0xb8cce0);
+  mt.onBeforeCompile=SKM[key].onBeforeCompile;mt.customProgramCacheKey=()=>'skzg'+key;m.g.visible=false;scene.add(m.g);return m;}
+function pgApply(s){
+  if(s.r!==PGC.run){PGC.run=s.r;PGC.seq=0;PGC.armorDone=0;if(M.armorStand)M.armorStand.visible=true;}
+  // a piece about to be thrown shudders where it stands
+  if(s.pgw&&s.pgw[1]!==PGC.seq){PGC.seq=s.pgw[1];const i=s.pgw[0],p=PROPS[i];if(p){if(PGC.shake)scene.remove(PGC.shake.g);const g=furnitureMesh(p.t.slice(2));g.position.set(p.x,propBase(p),p.z);g.rotation.y=p.r;scene.add(g);
+      PROPMESH[i].visible=false;PGC.shake={g,i,t:PG_WARN+.4,x:p.x,y:propBase(p),z:p.z};sfxAt('creak',p.x,p.z,1);burst(p.x,propBase(p)+.3,p.z,10,splinterM,1.5,.05);}}
+  if(PGC.shake&&W_pst(s,PGC.shake.i)!==0){scene.remove(PGC.shake.g);PGC.shake=null;}
+  // the armour comes off its stand: the brute that rose there wears it
+  if(s.am){if(M.armorStand)M.armorStand.visible=false;const c=CZ[s.am];if(c&&!c.armored&&c.m&&c.m.skin){c.armored=1;SKZ.delete(c.m);scene.remove(c.m.g);c.m=castOnM(armorMesh());scene.add(c.m.g);c.m.g.position.set(c.x,c.y,c.z);
+      if(!PGC.armorDone){PGC.armorDone=1;sfxAt('smash',ARMOR_SPOT.x,ARMOR_SPOT.z,1.3);if(Math.abs(P.y-LVY[1])<2&&Math.hypot(P.x-ARMOR_SPOT.x,P.z-ARMOR_SPOT.z)<30)toast('','Steel scrapes on the library floor');}}}
+  // the children
+  if(KIDS.run!==s.r){KIDS.run=s.r;KIDS.st=0;KIDS.al=7;}
+  const q=s.gk||[0],st=q[0],al=q[6]==null?(st===3?0:7):q[6];
+  if(KIDS.st&&KIDS.st!==3&&KIDS.st!==5){for(let i=0;i<3;i++){if(!(KIDS.al&1<<i)||al&1<<i)continue;const m=KIDS.m[i];if(!m)continue;const x=m.g.position.x,z=m.g.position.z;
+    burst(x,KIDS.y+.6,z,18,shardM,2.5,.05);sfxAt('creak',x,z,1.4);}}
+  KIDS.al=al;KIDS.st=st;KIDS.x=q[1]/10;KIDS.y=q[2]/10;KIDS.z=q[3]/10;KIDS.ry=(q[4]||0)/100;KIDS.tgt=q[5]||'';}
+const W_pst=(s,i)=>{const c=String(s.p||'')[i];return c?+c:0;};
+{const _os7=onSnapshot;onSnapshot=function(s){const r=_os7(s);try{if(s&&MAPCUR==='m')pgApply(s);}catch(e){if(!M.pgErr2){M.pgErr2=1;console.warn('poltergeist',e);}}return r;};}
+function pgFrame(dt){if(MAPCUR!=='m')return;const t=performance.now()/1000;
+  if(PGC.shake){const S_=PGC.shake;S_.t-=dt;S_.g.position.set(S_.x+(Math.random()-.5)*.06,S_.y+Math.abs(Math.sin(t*31))*.04,S_.z+(Math.random()-.5)*.06);S_.g.rotation.z=(Math.random()-.5)*.08;if(S_.t<=0){scene.remove(S_.g);PGC.shake=null;}}
+  const st=KIDS.st,show=st===1||st===2;
+  KIDS.m.forEach((m,i)=>{const on=show&&!!(KIDS.al&1<<i);m.g.visible=on;if(!on)return;let x,z,ry;
+    if(st===1){[x,z]=kidPos(1,KIDS.x,KIDS.z,KIDS.ry,i);ry=KIDS.ry+(i-1)*.3;}
+    else{let tx=KIDS.x,tz=KIDS.z;if(KIDS.tgt===myKey()){tx=P.x;tz=P.z;}[x,z]=kidPos(2,tx,tz,0,i);ry=Math.atan2(tx-x,tz-z);}
+    m.g.position.set(x,KIDS.y,z);m.g.rotation.y=ry;
+    // up close they flicker; from further off they stand faint and still
+    const d=Math.hypot(P.x-x,P.z-z),mt=m.skin.mesh.material;mt.opacity=st===2?.75:d<8?(Math.random()<.25?.08:.35+Math.random()*.35):.5+.06*Math.sin(t*1.3+i);});}
+{const _lt7=lookTick;lookTick=function(dt){_lt7(dt);try{pgFrame(dt);}catch(e){}};}
+
+
+
+
+
+
+/* ================= BUY POINTS AND THE GAS =================
+   A supply on every floor (one is open each wave, as in the cul-de-sac), the sawn-off and the suppressor in the gun room,
+   and the AK with every thermal optic only in the cellar armoury.
+   The gas works like the cul-de-sac's power: every other wave a random floor's gas fails and stays out until someone holds Use
+   at that floor's valve in the boiler room. With the gas out, zombies only spot you close up on that floor; the oil lamps still burn. */
+const FLOORS_={A:'the ground floor',B:'the upper floor',C:'the attic',D:'the cellar'},FLOORK=['cellar','ground floor','upper floor','attic'];
+{const _bl=bLabel;bLabel=function(b){return MAPCUR==='m'&&FLOORS_[b]?FLOORS_[b]:_bl(b);};}
+{const _ssw=simStartWave;simStartWave=function(W){_ssw(W);if(MAPCUR==='m')W.sta=pickA(['A','B','C','D']);};}
+const lvIdx=y=>[0,1,2,3].reduce((a,i)=>y>LVY[i]-.4?i:a,0);
+{const _so=sightOf;sightOf=function(W,t){if(MAPCUR!=='m')return _so(W,t);if(t.fl)return FL_SEE;if(inHouse(t.x,t.z)&&W.blackout[10+lvIdx(t.y)])return DARK_SEE;return SIGHT;};}
+{const _dt=darkTrips;darkTrips=function(W,dt,alive){if(MAPCUR!=='m')return _dt(W,dt,alive);
+  for(const b in W.blackout)if(+b<10)delete W.blackout[b]; // lightning has no wiring to trip in here
+  if(W.ph!=='w'||W.wave<2||W.wave%2||W.gasWave===W.wave)return;W.gasWave=W.wave;
+  const lit=[0,1,2,3].filter(k=>!W.blackout[10+k]);if(!lit.length)return;const k=pickA(lit);W.blackout[10+k]=1e5;
+  const V=BREAKERS.find(q=>q.b===10+k);if(V)addNoise(W,V.x0||V.x,LVY[0],V.z,8,'creak');};}
+// the valve answers only in the boiler room, not to someone standing in the room above it
+{const _dk=darkTick;darkTick=function(dt){if(MAPCUR==='m'){const inC=P.y<LVY[1]-1;for(const B of BREAKERS)if(B.valve!=null)B.x=inC?B.x0:1e6;}return _dk(dt);};}
+{const _bv=brkVerb,_bd=brkDone;brkVerb=function(){return MAPCUR==='m'&&DARK.near&&DARK.near.valve!=null?'Turn the '+FLOORK[DARK.near.valve]+' gas valve · it will be heard':_bv();};
+  brkDone=function(){return MAPCUR==='m'?'The gas hisses back on the '+FLOORK[DARK.near?DARK.near.valve:1]:_bd();};}
+const MINTER=[
+ {type:'station',b:'A',x:34.5,z:31.5,layer:1,face:'w'},{type:'wall',w:'sawn',b:'A',x:28.5,z:21.5,layer:1,face:'s'},{type:'sup',w:'glock',b:'A',x:26.5,z:20.5,layer:1,face:'w'},
+ {type:'station',b:'B',x:34.5,z:35.5,layer:2,face:'w'},{type:'station',b:'C',x:30.5,z:17.5,layer:3,face:'w'},
+ {type:'station',b:'D',x:55.5,z:34.5,layer:0,face:'e'},{type:'wall',w:'ak',b:'D',x:49.5,z:31.5,layer:0,face:'n'},
+ {type:'opt',w:'glock',b:'D',x:54.5,z:31.5,layer:0,face:'n'},{type:'opt',w:'ak',b:'D',x:48.5,z:33.5,layer:0,face:'w'},{type:'opt',w:'sawn',b:'D',x:48.5,z:35.5,layer:0,face:'w'}];
+function buyRect(it){const cx=Math.floor(it.x),cz=Math.floor(it.z);
+  return it.face==='n'?[cx-.4,cz,cx+1.4,cz+1.2]:it.face==='s'?[cx-.4,cz-.2,cx+1.4,cz+1]:it.face==='w'?[cx,cz-.4,cx+1.2,cz+1.4]:[cx-.2,cz-.4,cx+1,cz+1.4];}
+// the signs in the house's own style: gilt letters on walnut
+function plate(lines,w,h){const c=document.createElement('canvas');c.width=512;c.height=Math.round(512*h/w);const g=c.getContext('2d');
+  const gr=g.createLinearGradient(0,0,0,c.height);gr.addColorStop(0,'#3a2416');gr.addColorStop(1,'#24160d');g.fillStyle=gr;g.fillRect(0,0,c.width,c.height);
+  g.strokeStyle='#b08a3e';g.lineWidth=10;g.strokeRect(12,12,c.width-24,c.height-24);g.lineWidth=2;g.strokeRect(26,26,c.width-52,c.height-52);
+  g.fillStyle='#d9b75e';g.textAlign='center';g.textBaseline='middle';
+  for(const [t,sz,y] of lines){g.font=`${sz}px Georgia, "Times New Roman", serif`;g.fillText(t,c.width/2,c.height*y);}
+  const t=new THREE.CanvasTexture(c);t.anisotropy=4;return t;}
+function buyPoints(){INTER.length=0;
+  for(const it0 of MINTER){const it=Object.assign({},it0);INTER.push(it);const base=LVY[it.layer];
+    const put=(m,o,y)=>{const p=faceSpot(it,o);m.position.set(p.x,base+y,p.z);m.rotation.y=p.ry;scene.add(m);return m;};
+    const sign=(tex,w,h,y)=>put(new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshLambertMaterial({map:tex,emissive:0x2a1c0c,emissiveMap:tex})),.03,y);
+    if(it.type==='wall'){const w=WEAP[it.w];it.signM=sign(plate([[w.name.toUpperCase(),62,.38],[PRICE[it.w]+' CR',52,.7]],1.5,.75),1.5,.75,1.75);
+      const gun=new THREE.Mesh(BOX,lam(0x23252a));gun.scale.set(it.w==='ak'?1.1:.8,.12,.06);it.gunM=put(gun,.08,1.15);
+      const rack=new THREE.Mesh(BOX,lam(0x3a2416));rack.scale.set(1.3,.08,.08);put(rack,.05,1.02);}
+    else if(it.type==='opt'||it.type==='sup'){const label=it.type==='opt'?'THERMAL':'SUPPRESSOR',price=it.type==='opt'?OPT_PRICE[it.w]:PRICE.sup;
+      it.signM=sign(plate([[label,58,.3],[WEAP[it.w].name.toUpperCase(),38,.56],[price+' CR',46,.8]],1.4,.7),1.4,.7,1.75);
+      const m=new THREE.Mesh(BOX,lam(0x1b1d22));m.scale.set(it.type==='opt'?.34:.28,.09,.06);it.attM=put(m,.08,1.18);}
+    else{const crate=new THREE.Mesh(BOX,mmat('floor_boards',0x8a6a4c));crate.scale.set(.95,.8,.55);it.crate=put(crate,.3,.4);
+      for(const dy of [.12,.68]){const b=new THREE.Mesh(BOX,lam(0x2a2420));b.scale.set(.97,.05,.57);put(b,.3,dy);}
+      const l=new THREE.Mesh(new THREE.SphereGeometry(.07,12,10),new THREE.MeshBasicMaterial({color:0x79b48a}));it.lamp=put(l,.3,.9);
+      it.signM=sign(plate([['SUPPLY',78,.42],['AMMUNITION · ARMOUR',34,.74]],1.3,.65),1.3,.65,1.8);}}}
+
+/* ================= BLOODY MARY (wave 6) =================
+   She takes the djinn's wave in the mansion. She lives in the mirrors and slips from one to the next, keeping close to the living;
+   you see her standing in the glass. Looking at her hurts, a little, for as long as you look. Stand near her mirror with your back to
+   it and she comes out behind you and pulls you in.
+   Inside the glass you can only look out, or slip into another mirror. Your voice comes through muffled, and you hear the others the
+   same way; the horde forgets you. While you're in there she stands outside your mirror, guarding it. Knife her and she lets you go.
+   After ten seconds she may come in after you: every second there's a chance (more for every mirror that's been broken), and then she
+   moves through the mirrors towards yours, one at a time. Only you hear her coming, from where she is. If she reaches the mirror
+   you're in, you die; slip away to another one. Break the mirror you're in and you die too.
+   Break the mirror she's standing in and she's gone for good. With nobody left free to save you, she keeps you 30 to 45 seconds
+   and lets you go, weak (30% health) and slow to heal. The host runs her; everyone sees the same. */
+const MARY_AT=8,MARY_HOP=[6,11],MARY_GRAB_R=3.2,MARY_GRAB_T=.8,MARY_PULL=1.3,MARY_MIN=10,MARY_HUNT_HOP=3.2,MARY_GIVEUP=30,MARY_CATCH=1.5,
+  MARY_LOOK=1.5,MARY_SOLO=[30,45],MARY_CD=15,MARY_WAKE=30,MARY_HOLD=75;
+const mGlass=i=>{const m=M.mirrors[i];if(!m)return null;const p=m.glass.position;return {x:p.x,y:p.y,z:p.z,k:m.k,nx:m.nx,nz:m.nz,ry:m.ry,w:m.w,h:m.h};};
+const mDist=(i,j)=>{const a=mGlass(i),b=mGlass(j);return a&&b?Math.hypot(a.x-b.x,(a.y-b.y)*2,a.z-b.z):1e9;};
+const mFront=(i,d)=>{const g=mGlass(i);return [g.x+g.nx*d,g.z+g.nz*d];};
+// ---- host
+function hostMary(W){if(W.mary&&W.mary.run===W.run)return W.mary;
+  return W.mary={run:W.run,st:0,mi:-1,x:0,y:0,z:0,ry:0,vic:null,t:0,cd:0,since:0,near:{},seq:0,grabbed:0,ht:0,catchT:0,roll:0,gi:-1,gt:0,ban:0,tr:{},mb:{},nb:0,rel:{},wk:{}};}
+function mLive(Y,i){const m=M.mirrors[i];return !!m&&!Y.mb[i]&&!m.dead;}
+function mTaken(Y,i){for(const k in Y.tr)if(Y.tr[k].mi===i)return true;return false;}
+function maryPick(Y,free,avoid){const ok=M.mirrors.map((_,i)=>i).filter(i=>mLive(Y,i)&&i!==Y.mi&&!mTaken(Y,i));if(!ok.length)return Y.mi;
+  if(avoid){const far=ok.filter(i=>{const g=mGlass(i);return Math.hypot(g.x-avoid.x,g.z-avoid.z)>14||Math.abs(g.y-avoid.y)>2.5;});if(far.length)return pickA(far);}
+  if(free.length){const p=pickA(free),near=ok.map(i=>{const g=mGlass(i);return [Math.hypot(g.x-p.x,g.z-p.z),i,g];}).filter(q=>Math.abs(LVY[q[2].k]-p.y)<1.2&&q[0]<16).sort((a,b)=>a[0]-b[0]);
+    if(near.length)return near[Math.floor(Math.random()*Math.min(3,near.length))][1];}
+  return pickA(ok);}
+function maryRelease(W,Y,key,wake){if(!Y.tr[key])return;delete Y.tr[key];Y.rel[key]=(Y.rel[key]||0)+1;if(wake)Y.wk[key]=(Y.wk[key]||0)+1;}
+function maryKill(W,Y,key){delete Y.tr[key];W.taken[key]=(W.taken[key]||0)+999;}
+function maryBack(Y,free,avoid){Y.st=1;Y.vic=null;Y.mi=maryPick(Y,free,avoid);Y.t=rr(MARY_HOP);Y.cd=MARY_CD;Y.seq++;Y.catchT=0;}
+function stepMary(W,dt,players){const Y=hostMary(W);if(Y.st===5)return;
+  if(W.wave!==6||W.ph!=='w'){if(Y.st>0||W.wave>6){for(const k in Y.tr)maryRelease(W,Y,k,false);Y.st=5;}return;}
+  const alive=players.filter(p=>p.alive);for(const k in Y.tr)if(!alive.some(p=>p.key===k))delete Y.tr[k];
+  const free=alive.filter(p=>!Y.tr[p.key]);
+  if(Y.st===0){if(W.waveT<MARY_AT||!M.mirrors.length)return;Y.mi=maryPick(Y,free);Y.st=1;Y.t=rr(MARY_HOP);Y.cd=3;Y.seq++;return;}
+  Y.since+=dt;Y.cd-=dt;
+  if((Y.st===3||Y.st===4)&&!Y.tr[Y.vic]){maryBack(Y,free);return;} // her prisoner's gone (dead, or left)
+  if(Y.st===1){if(!mLive(Y,Y.mi)){Y.mi=maryPick(Y,free);Y.seq++;}
+    Y.t-=dt;if(Y.t<=0){Y.mi=maryPick(Y,free);Y.t=rr(MARY_HOP);Y.seq++;}
+    if(Y.cd>0)return;const g=mGlass(Y.mi);if(!g)return;const tx=Math.cos(g.ry),tz=-Math.sin(g.ry);
+    for(const p of free){const rx=p.x-g.x,rz=p.z-g.z,al=rx*g.nx+rz*g.nz,lat=Math.abs(rx*tx+rz*tz),fx=-Math.sin(p.yaw||0),fz=-Math.cos(p.yaw||0);
+      const back=Math.abs(p.y-LVY[g.k])<1&&al>.2&&al<MARY_GRAB_R&&lat<1.6&&fx*g.nx+fz*g.nz>.2;
+      Y.near[p.key]=back?(Y.near[p.key]||0)+dt:Math.max(0,(Y.near[p.key]||0)-dt);
+      if(Y.near[p.key]>=MARY_GRAB_T){Y.near={};Y.st=2;Y.vic=p.key;Y.t=MARY_PULL;Y.x=p.x-fx*.55;Y.z=p.z-fz*.55;Y.y=p.y;Y.ry=Math.atan2(fx,fz);return;}}
+    return;}
+  if(Y.st===2){const p=free.find(q=>q.key===Y.vic);if(!p){maryBack(Y,free);return;}Y.t-=dt;if(Y.t>0)return;
+    Y.tr[Y.vic]={mi:Y.mi,t:0,solo:0,need:rr(MARY_SOLO),hopAt:0};Y.grabbed++;Y.st=3;Y.gi=Y.mi;Y.gt=0;Y.roll=0;const [x,z]=mFront(Y.mi,.75);Y.x=x;Y.z=z;Y.y=LVY[M.mirrors[Y.mi].k];Y.ry=M.mirrors[Y.mi].ry;Y.mi=-1;return;}
+  const T=Y.tr[Y.vic];T.t+=dt;
+  if(!free.length){ // nobody left to come for you: she keeps you a while, then lets you go, weak
+    T.solo+=dt;if(T.solo>=T.need){const g=mGlass(T.mi);maryRelease(W,Y,Y.vic,true);maryBack(Y,free,g);}else if(Y.st===4){Y.st=3;Y.mi=-1;Y.gt=9;}
+    if(Y.st!==3)return;}
+  if(Y.st===3){ // outside your mirror, keeping watch; she follows when you slip to another
+    if(Y.gi!==T.mi){Y.gt+=dt;if(Y.gt>1.2){Y.gi=T.mi;Y.gt=0;const [x,z]=mFront(T.mi,.75);Y.x=x;Y.z=z;Y.y=LVY[M.mirrors[T.mi].k];Y.ry=M.mirrors[T.mi].ry;}}
+    if(!free.length||T.t<MARY_MIN)return;Y.roll+=dt;if(Y.roll<1)return;Y.roll-=1;
+    if(Math.random()>Math.min(.5,.06+.05*Y.nb))return;
+    // she goes in after you, from a mirror well away from yours
+    const own=mGlass(T.mi),ok=M.mirrors.map((_,i)=>i).filter(i=>mLive(Y,i)&&!mTaken(Y,i));if(!ok.length)return;
+    const by=ok.map(i=>[mDist(i,T.mi),i]).sort((a,b)=>a[0]-b[0]),mid=by.filter(q=>q[0]>=16&&q[0]<=40);
+    Y.st=4;Y.mi=(mid.length?pickA(mid):by[by.length-1])[1];Y.ht=0;Y.t=MARY_HUNT_HOP;Y.catchT=0;Y.seq++;return;}
+  if(Y.st===4){Y.ht+=dt;
+    if(Y.mi===T.mi){Y.catchT-=dt;if(Y.catchT<=0){maryKill(W,Y,Y.vic);maryBack(Y,free);}return;}
+    if(Y.ht>MARY_GIVEUP){Y.st=3;Y.mi=-1;Y.gi=-1;Y.gt=9;T.t=0;return;}
+    Y.t-=dt;if(Y.t>0)return;Y.t=MARY_HUNT_HOP;
+    // one mirror nearer yours: the nearest to you among those within a short slip of where she is
+    const here=Y.mi,dh=mDist(here,T.mi),ok=M.mirrors.map((_,i)=>i).filter(i=>i!==here&&mLive(Y,i)&&(i===T.mi||!mTaken(Y,i)));
+    const step=ok.filter(i=>mDist(i,here)<15&&mDist(i,T.mi)<dh-.5).sort((a,b)=>mDist(a,T.mi)-mDist(b,T.mi));
+    Y.mi=step.length?step[0]:T.mi;Y.seq++;if(Y.mi===T.mi)Y.catchT=MARY_CATCH;}}
+function maryHold(W){const Y=W.mary;if(!Y||Y.run!==W.run)return true;if(Y.st===5)return false;
+  if(Y.st===0||Y.st===2||Y.st===3||Y.st===4||Object.keys(Y.tr).length)return true;return !Y.grabbed&&Y.since<MARY_HOLD;}
+function simApplyMary(W,key,lq){if(!lq||lq.r!==W.run||!Array.isArray(lq.q)||MAPCUR!=='m')return;const Y=hostMary(W),seen=W.myS||(W.myS={});
+  for(const a of lq.q){if(!['mshot','mknife','mlook','mhop'].includes(a[1]))continue;const n=a[0];if(n<=(seen[key]||0))continue;seen[key]=n;
+    const pl=(W._players||[]).find(p=>p.key===key),free=(W._players||[]).filter(p=>p.alive&&!Y.tr[p.key]);
+    if(a[1]==='mshot'){const i=a[2];if(!M.mirrors[i]||Y.mb[i])continue;Y.mb[i]=1;Y.nb++;
+      for(const k in Y.tr)if(Y.tr[k].mi===i)maryKill(W,Y,k); // the mirror you're in, broken: you go with it
+      if((Y.st===1||Y.st===4)&&Y.mi===i){Y.st=5;Y.ban=1;for(const k in Y.tr)maryRelease(W,Y,k,false);} // hers: she's gone
+      else if((Y.st===3||Y.st===4)&&!Y.tr[Y.vic])maryBack(Y,free);}
+    else if(a[1]==='mknife'){if((Y.st!==2&&Y.st!==3)||!pl||!pl.alive||Y.tr[key])continue;if(Math.hypot(pl.x-Y.x,pl.z-Y.z)>2.8)continue;
+      if(Y.st===3)for(const k in Y.tr)maryRelease(W,Y,k,false);maryBack(Y,free,{x:Y.x,y:Y.y,z:Y.z});}
+    else if(a[1]==='mlook'){if(Y.st<1||Y.st>4||!pl||!pl.alive||Y.tr[key])continue;const hp=pl.hp==null?100:pl.hp,dmg=Math.max(0,Math.min(MARY_LOOK,hp-1));if(dmg>0)W.taken[key]=(W.taken[key]||0)+dmg;}
+    else if(a[1]==='mhop'){const T=Y.tr[key],i=a[2];if(!T||W.time<T.hopAt||!mLive(Y,i)||i===T.mi||mTaken(Y,i))continue;if((Y.st===1||Y.st===4)&&Y.mi===i)continue;T.mi=i;T.hopAt=W.time+1;}}}
+{const _sal4=simApplyLamp;simApplyLamp=function(W,key,lq){_sal4(W,key,lq);simApplyMary(W,key,lq);};}
+// the horde forgets whoever's in the glass: they pass through the sim as down, not dead (so the run isn't lost while they're in there)
+{const _ss7=simStep;simStep=function(W,dt,players){players=players||[];if(MAPCUR!=='m'||W.st!==1)return _ss7(W,dt,players);const Y=hostMary(W);
+  const pl=Object.keys(Y.tr).length?players.map(p=>Y.tr[p.key]&&p.alive?Object.assign({},p,{alive:false,downed:true,mir:1}):p):players;
+  _ss7(W,dt,pl);if(W.st!==1)return;try{stepMary(W,dt,players);}catch(e){if(!M.myErr){M.myErr=1;console.warn('mary',e);}}};}
+{const _vh=v3Hold;v3Hold=function(W){if(MAPCUR==='m'&&W.wave===6&&maryHold(W))return true;return _vh(W);};}
+{const _pw8=packW;packW=function(W){const s=_pw8(W);if(MAPCUR!=='m'||!W.mary||W.mary.run!==W.run)return s;const Y=W.mary,r1=v=>Math.round(v*10);
+  if(Y.st)s.my=[Y.st,Y.mi,r1(Y.x),r1(Y.y),r1(Y.z),Math.round(Y.ry*100),Y.vic||'',Y.seq,Y.catchT>0?1:0,Y.ban];
+  if(Object.keys(Y.tr).length){s.mt={};for(const k in Y.tr)s.mt[k]=Y.tr[k].mi;}
+  if(Y.nb)s.mb=Object.keys(Y.mb).join(',');if(Object.keys(Y.rel).length)s.mrl=Y.rel;if(Object.keys(Y.wk).length)s.mwk=Y.wk;return s;};}
+{const _aw8=adoptW;adoptW=function(S0,pr){const W=_aw8(S0,pr);if(S0&&S0.mp==='m'&&(S0.my||S0.mb)){const Y=hostMary(W),q=S0.my||[0];
+  Object.assign(Y,{st:q[0]===2?1:q[0]||0,mi:q[0]===2?Math.max(0,q[1]):q[1]??-1,x:(q[2]||0)/10,y:(q[3]||0)/10,z:(q[4]||0)/10,ry:(q[5]||0)/100,vic:q[6]||null,seq:q[7]||0,ban:q[9]||0,t:3,cd:5,since:30,grabbed:q[0]>1?1:0,gi:-1,gt:9});
+  if(Y.st===1&&Y.mi<0)Y.mi=0;for(const k in (S0.mt||{}))Y.tr[k]={mi:S0.mt[k],t:0,solo:0,need:35,hopAt:0};
+  if(S0.mb)for(const i of String(S0.mb).split(','))if(i!==''){Y.mb[+i]=1;Y.nb++;}Y.rel=Object.assign({},S0.mrl||{});Y.wk=Object.assign({},S0.mwk||{});}return W;};}
+// ---- your side
+const MARYC={run:-1,st:0,mi:-1,x:0,y:0,z:0,ry:0,vic:'',seq:0,ct:0,tr:{},mb:{},rel:{},wk:{},me:-1,out:null,inn:null,ghosts:{},look:0,pull:null,hit:0,vig:null};
+function mClipMat(mat,planes){const m=mat.clone();if(mat.onBeforeCompile)m.onBeforeCompile=mat.onBeforeCompile;if(mat.customProgramCacheKey)m.customProgramCacheKey=mat.customProgramCacheKey;
+  m.clippingPlanes=planes;m.depthTest=false;m.depthWrite=false;m.transparent=true;return m;}
+// a figure inside the glass: drawn over the wall it hangs on, cut to the mirror's frame, only from in front
+function glassFigure(make,tint,op){const planes=[0,1,2,3].map(()=>new THREE.Plane()),m=make();
+  m.g.traverse(o=>{if(!o.material)return;o.material=Array.isArray(o.material)?o.material.map(x=>mClipMat(x,planes)):mClipMat(o.material,planes);
+    for(const x of [].concat(o.material)){if(x.color&&tint!=null)x.color.setHex(tint);x.opacity=op;}o.renderOrder=20;o.frustumCulled=false;});
+  m.g.visible=false;scene.add(m.g);return {m,planes};}
+function placeInGlass(F,i,back){const g=mGlass(i),tx=Math.cos(g.ry),tz=-Math.sin(g.ry),[a,b,c,d]=F.planes;
+  a.normal.set(tx,0,tz);a.constant=-(tx*g.x+tz*g.z)+g.w/2;b.normal.set(-tx,0,-tz);b.constant=(tx*g.x+tz*g.z)+g.w/2;
+  c.normal.set(0,1,0);c.constant=-g.y+g.h/2;d.normal.set(0,-1,0);d.constant=g.y+g.h/2;
+  F.m.g.position.set(g.x-g.nx*back,LVY[g.k],g.z-g.nz*back);F.m.g.rotation.y=g.ry;
+  const cp=camera.position;F.m.g.visible=(cp.x-g.x)*g.nx+(cp.z-g.z)*g.nz>.04&&Math.abs(cp.y-g.y)<2.4&&Math.hypot(cp.x-g.x,cp.z-g.z)<28;}
+const maryBody=()=>{const m=skinZombie(0,false,false,'mz_mary');SKZ.delete(m);return m;};
+function maryMeshes(){if(MARYC.out)return;
+  const o=maryBody();o.skin.mesh.material=o.skin.mesh.material.clone();const mt=o.skin.mesh.material;mt.onBeforeCompile=SKM.mz_mary.onBeforeCompile;mt.customProgramCacheKey=()=>'skzm';
+  mt.transparent=true;mt.opacity=.92;mt.color.setHex(0xd8dde2);o.g.visible=false;scene.add(o.g);MARYC.out=o;
+  MARYC.inn=glassFigure(maryBody,0xc8d0d8,.85);renderer.localClippingEnabled=true;}
+function maryVig(){if(MARYC.vig)return MARYC.vig;const v=document.createElement('div');
+  v.style.cssText='position:fixed;inset:0;pointer-events:none;z-index:4;opacity:0;transition:opacity .25s;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 45%,rgba(120,0,0,.55) 100%)';
+  const g=document.createElement('div');g.style.cssText='position:fixed;inset:0;pointer-events:none;z-index:4;opacity:0;transition:opacity .6s;background:radial-gradient(ellipse at center,rgba(170,190,200,.06) 30%,rgba(20,30,36,.78) 100%)';
+  document.body.appendChild(v);document.body.appendChild(g);return MARYC.vig={v,g};}
+// her sounds: a breath, a scrape on the glass; placed where she is
+function marySound(x,y,z,vol,low){if(!AC||!noiseBuf)return;try{const t=AC.currentTime,s=AC.createBufferSource(),f=AC.createBiquadFilter(),g=AC.createGain(),p=AC.createPanner();
+  Object.assign(p,{panningModel:'HRTF',distanceModel:'linear',refDistance:2,maxDistance:45,rolloffFactor:.8});setPannerPos(p,x,y,z);
+  s.buffer=noiseBuf;s.playbackRate.value=low?.55:.8;f.type='bandpass';f.frequency.setValueAtTime(low?520:1100,t);f.frequency.linearRampToValueAtTime(low?300:700,t+.9);f.Q.value=3;
+  g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.5*vol,t+.25);g.gain.exponentialRampToValueAtTime(.001,t+1.1);
+  s.connect(f);f.connect(g);g.connect(p);p.connect(sfxBus||AC.destination);s.start(t);s.stop(t+1.2);}catch(e){}}
+function maryApply(s){const C=MARYC,me=myKey();
+  if(s.r!==C.run){C.run=s.r;for(const i in C.mb){const m=M.mirrors[i];if(m){m.dead=false;m.glass.visible=!m.live;}}C.mb={};C.st=0;C.me=-1;C.tr={};C.rel=Object.assign({},s.mrl||{});C.wk=Object.assign({},s.mwk||{});P.slowRegen=false;C.pull=null;}
+  // mirrors broken
+  for(const q of String(s.mb||'').split(',')){if(q===''||C.mb[q])continue;C.mb[q]=1;const m=M.mirrors[+q];if(!m)continue;m.dead=true;
+    if(m.live){m.live.visible=false;m.live.userData.m=null;m.live=null;}m.glass.visible=false;const p=m.glass.position;
+    for(let j=0;j<3;j++)burst(p.x+(Math.random()-.5)*m.w*.6,p.y+(Math.random()-.5)*m.h*.6,p.z,16,shardM,2.6,.05);sfxAt('smash',p.x,p.z,1.1);}
+  const q=s.my||[0],st=q[0],was=C.st;
+  Object.assign(C,{st,mi:q[1]??-1,x:(q[2]||0)/10,y:(q[3]||0)/10,z:(q[4]||0)/10,ry:(q[5]||0)/100,vic:q[6]||'',ct:q[8]||0});
+  if(st&&st<5)maryMeshes();
+  if(was===0&&st===1&&P.alive)toast('','Something moves behind the glass');
+  if(st===2&&was!==2&&C.vic===me&&P.alive){C.pull={t:MARY_PULL,x:P.x,z:P.z};marySound(C.x,C.y+1.5,C.z,1.4,true);toast('','Cold hands, from behind');}
+  if(st===5&&was>0&&was<5&&q[9])toast('Bloody Mary','The glass breaks, and she goes with it');
+  // in the glass, or let out of it
+  const prev=C.me;C.tr=s.mt||{};C.me=C.tr[me]!=null?C.tr[me]:-1;
+  if(prev<0&&C.me>=0){C.pull=null;toast('','You\'re inside the glass. Use: slip into another mirror');}
+  const rel=(s.mrl||{})[me]||0,wk=(s.mwk||{})[me]||0;
+  if(prev>=0&&C.me<0&&P.alive){if(wk>(C.wk[me]||0)){P.hp=Math.min(P.hp,MARY_WAKE);P.slowRegen=true;startGetUp('wake');toast('','The glass lets you go. You\'re weak');}
+    else toast('','The glass lets you go');}
+  C.rel[me]=rel;C.wk[me]=wk;
+  // her steps through the glass: only the one she's after hears them, from where she is
+  if(C.me>=0&&st===4&&q[7]!==C.seq&&C.mi>=0){const g=mGlass(C.mi);if(g)marySound(g.x,g.y,g.z,C.mi===C.me?1.6:1,C.mi===C.me);}
+  C.seq=q[7]||0;}
+{const _os8=onSnapshot;onSnapshot=function(s){const r=_os8(s);try{if(s&&MAPCUR==='m'&&M.mirrors)maryApply(s);}catch(e){if(!M.myErr2){M.myErr2=1;console.warn('mary',e);}}return r;};}
+VOICE_MUFFLE=r=>MAPCUR==='m'&&(MARYC.me>=0||MARYC.tr[r.key]!=null);
+// where she'd be looked at: her body out here, or the glass she stands in
+function maryTarget(){const C=MARYC;if(C.st===2||C.st===3)return [C.x,C.y+1.45,C.z,.32,null];
+  if((C.st===1||C.st===4)&&C.mi>=0&&!C.mb[C.mi]){const g=mGlass(C.mi);if(!g)return null;const cp=camera.position;if((cp.x-g.x)*g.nx+(cp.z-g.z)*g.nz<.1)return null;return [g.x,g.y,g.z,Math.max(.22,Math.min(g.w,g.h)*.45),g];}return null;}
+const _mf=new THREE.Vector3();
+function maryFrame(dt){const C=MARYC,V=MARYC.vig||maryVig();
+  if(MAPCUR!=='m'||!inGame()||C.run!==(S&&S.r)){if(C.out){C.out.g.visible=false;C.inn.m.g.visible=false;}for(const k in C.ghosts)C.ghosts[k].m.g.visible=false;V.v.style.opacity=0;V.g.style.opacity=0;MAP_FILTER='';return;}
+  if(P.slowRegen&&(P.hp>=99.5||!P.alive))P.slowRegen=false;
+  const now_=performance.now()/1000,cp=camera.position;
+  // her, out here
+  if(C.out){const out=C.st===2||C.st===3;C.out.g.visible=out;if(out){C.out.g.position.set(C.x,C.y,C.z);C.out.g.rotation.y=C.ry+Math.sin(now_*.7)*.05;
+      const d=Math.hypot(cp.x-C.x,cp.z-C.z);C.out.skin.mesh.material.opacity=d<5&&Math.random()<.12?.35:.9;}
+    // her, in the glass
+    if((C.st===1||C.st===4)&&C.mi>=0&&!C.mb[C.mi])placeInGlass(C.inn,C.mi,1.1);else C.inn.m.g.visible=false;}
+  // the others in the glass
+  const ro=(S&&S.ro)||{};for(const k in C.ghosts)if(C.tr[k]==null||k===myKey()){C.ghosts[k].m.g.visible=false;}
+  for(const k in C.tr){if(k===myKey())continue;const r=remoteByKey(k);if(r&&r.mesh)r.mesh.g.visible=false;
+    let F=C.ghosts[k];if(!F)F=C.ghosts[k]=glassFigure(()=>playerMesh(ro[k]||0),null,.6);const i=C.tr[k];if(M.mirrors[i]&&!C.mb[i])placeInGlass(F,i,.8);else F.m.g.visible=false;}
+  // being pulled in
+  if(C.pull){C.pull.t-=dt;P.x=C.pull.x;P.z=C.pull.z;P.firing=false;P.ads=0;camera.rotation.z+=Math.sin(now_*40)*.03;camera.position.y-=(1-C.pull.t/MARY_PULL)*.3;if(C.pull.t<=-1.5)C.pull=null;}
+  // inside the glass: you see out through your mirror, and that's all
+  if(C.me>=0&&P.alive&&M.mirrors[C.me]){const g=mGlass(C.me),[fx,fz]=mFront(C.me,.45);P.x=fx;P.z=fz;P.y=LVY[g.k];P.vy=0;P.firing=false;P.ads=0;
+    const y0=Math.atan2(-g.nx,-g.nz);let d=P.yaw-y0;d=Math.atan2(Math.sin(d),Math.cos(d));P.yaw=y0+Math.max(-1.15,Math.min(1.15,d));P.pitch=Math.max(-.6,Math.min(.6,P.pitch));
+    camera.position.set(g.x+g.nx*.06,g.y+.05,g.z+g.nz*.06);camera.rotation.set(P.pitch,P.yaw,0);if(VM&&VM.g)VM.g.visible=false;
+    V.g.style.opacity=1;MAP_FILTER='grayscale(.55) sepia(.2) hue-rotate(160deg) brightness(.9) blur(.5px)';}
+  else{V.g.style.opacity=0;MAP_FILTER='';}
+  // looking at her hurts
+  let looking=false;const T=P.alive&&C.me<0&&!C.pull?maryTarget():null;
+  if(T){camera.getWorldDirection(_mf);const dx=T[0]-cp.x,dy=T[1]-cp.y,dz=T[2]-cp.z,dd=Math.hypot(dx,dy,dz);
+    if(dd<20&&dd>.3){const cos=(dx*_mf.x+dy*_mf.y+dz*_mf.z)/dd,lim=Math.cos(Math.max(.12,Math.atan2(T[3],dd))+.08);
+      if(cos>lim&&wallHit(cp.x,cp.y,cp.z,dx/dd,dy/dd,dz/dd,dd)>=dd-(T[4]?.25:.6))looking=true;}}
+  if(looking){C.look+=dt;if(C.look>=.5){C.look-=.5;lampAct('mlook');}C.hit=Math.min(1,C.hit+dt*3);if(Math.random()<dt*1.2)marySound(T[0],T[1],T[2],.6,false);}
+  else{C.look=Math.max(0,C.look-dt);C.hit=Math.max(0,C.hit-dt*2);}
+  V.v.style.opacity=(C.hit*(.55+.25*Math.sin(now_*9))).toFixed(2);}
+{const _lt8=lookTick;lookTick=function(dt){_lt8(dt);try{maryFrame(dt);}catch(e){if(!M.myErr3){M.myErr3=1;console.warn('mary',e);}}};}
+// shooting a mirror breaks it
+{const _rp3=rayProp;rayProp=function(ox,oy,oz,dx,dy,dz,maxT){let r=_rp3(ox,oy,oz,dx,dy,dz,maxT);if(MAPCUR!=='m'||!M.mirrors)return r;const lim=r?r.t:maxT;
+  M.mirrors.forEach((m,i)=>{if(m.dead||MARYC.mb[i]||i===MARYC.me)return;const p=m.glass.position,den=dx*m.nx+dz*m.nz;if(den>-.05)return;
+    const t=((p.x-ox)*m.nx+(p.z-oz)*m.nz)/den;if(t<=0||t>=lim||(r&&t>=r.t))return;const hx=ox+dx*t-p.x,hy=oy+dy*t-p.y,hz=oz+dz*t-p.z;
+    if(Math.abs(hx*Math.cos(m.ry)-hz*Math.sin(m.ry))>m.w/2||Math.abs(hy)>m.h/2)return;r={i:'R'+i,t};});return r;};}
+{const _hp3=hitProp;hitProp=function(i,dmg,x,y,z){if(typeof i==='string'&&i[0]==='R'){lampAct('mshot',+i.slice(1));burst(x,y,z,10,shardM,2.5,.04);SFX.hit();return;}return _hp3(i,dmg,x,y,z);};}
+// knifing her lets her prisoner go (or breaks her grip)
+{const _kn=knife;knife=function(){if(MAPCUR==='m'&&inGame()&&P.alive){const C=MARYC;if(C.me>=0||C.pull)return;
+    if((C.st===2||C.st===3)&&C.vic!==myKey()&&P.knifeT<=0){const dx=C.x-P.x,dz=C.z-P.z,d=Math.hypot(dx,dz),fx=-Math.sin(P.yaw),fz=-Math.cos(P.yaw);
+      if(d<2.5&&Math.abs(C.y-P.y)<1.3&&(dx*fx+dz*fz)/Math.max(d,.01)>.5){lampAct('mknife');burst(C.x,C.y+1.3,C.z,14,shardM,2,.05);marySound(C.x,C.y+1.5,C.z,1.2,true);}}}
+  return _kn();};}
+{const _fi3=fire;fire=function(){if(MAPCUR==='m'&&(MARYC.me>=0||MARYC.pull))return;return _fi3();};}
+// in the glass, Use slips you into another mirror: the one you're looking at, or failing that the nearest
+function hopTarget(){const C=MARYC,cur=C.me,cp=camera.position;camera.getWorldDirection(_mf);let best=null,bs=.9,near=null,nd=1e9;
+  M.mirrors.forEach((m,i)=>{if(i===cur||m.dead||C.mb[i])return;if(Object.values(C.tr).includes(i))return;if((C.st===1||C.st===4)&&C.mi===i)return;
+    const p=m.glass.position,dx=p.x-cp.x,dy=p.y-cp.y,dz=p.z-cp.z,d=Math.hypot(dx,dy,dz),c=(dx*_mf.x+dy*_mf.y+dz*_mf.z)/(d||1);
+    if(d<30&&c>bs&&(cp.x-p.x)*m.nx+(cp.z-p.z)*m.nz>0&&wallHit(cp.x,cp.y,cp.z,dx/d,dy/d,dz/d,d)>=d-.3){bs=c;best=i;}
+    const dm=mDist(cur,i);if(dm<nd){nd=dm;near=i;}});
+  return best!=null?{i:best,how:'ahead'}:near!=null?{i:near,how:'near'}:null;}
+{const _up4=usePress;usePress=function(){if(MAPCUR==='m'&&inGame()&&P.alive&&MARYC.me>=0){const h=hopTarget();if(h){lampAct('mhop',h.i);marySound(camera.position.x,camera.position.y,camera.position.z,.4,false);}else SFX.deny();return;}
+  if(MAPCUR==='m'&&MARYC.pull)return;return _up4();};}
+{const _dp4=darkPrompt;darkPrompt=function(verb,t){if(MAPCUR==='m'&&inGame()&&P.alive&&MARYC.me>=0){const use=lastInput==='pad'?'('+padBtn('use')+')':isTouch?'USE':'[F]',h=hopTarget();
+    return h?[use+(h.how==='ahead'?' Slip into that mirror':' Slip into the nearest mirror'),false]:['No other mirror to slip into',true];}return _dp4(verb,t);};}
+{const _sm3=setMap;setMap=function(mp){if(mp!=='m'){MAP_FILTER='';if(MARYC.vig){MARYC.vig.v.style.opacity=0;MARYC.vig.g.style.opacity=0;}MARYC.me=-1;MARYC.pull=null;}return _sm3(mp);};}
+M.mary=MARYC;
+
+/* ================= THE SPECTRAL LORD (waves 9 and 10) =================
+   Wave 9 belongs to his victims: each of you, now and then, glimpses one of the women from the trophy case standing in the house.
+   Look straight at her, or go near, and she's gone. Nothing more: the taking stays on the cul-de-sac.
+   Wave 10 is his. He rises from his room in the cellar and walks through walls and floors to whoever's nearest. Up close he strikes,
+   or takes hold of you and drags you through the house (walls, floors and all) and lets you drop somewhere else, hurt.
+   Every so often he calls up his victims around you: they drift through the walls to you and claw, and only a blade puts them down.
+   Everything hurts him: bullets, blasts, fire, the knife. Bring him to nothing and he goes solid and slow for 15 seconds: finish him
+   then with the knife or with fire. Miss the moment and he comes back to 70% of his strength, then 45%, then 15%, each time crueller:
+   faster, harder hits, more drags, more victims. The host runs him; everyone sees the same. */
+const LORD_CAPS=[.7,.45,.15],LORD_SOLID=15,LORD_SPD=[2.4,3,3.6,4.3],LORD_HIT=[30,36,44,52],LORD_DRAG_CD=[16,12,9,6],LORD_DRAG_T=2.6,LORD_DROP=[12,15,18,22],
+  LORD_SUM_CD=[22,17,13,9],LORD_SUM_N=[2,2,3,3],LORD_VIC_MAX=[3,4,5,6],LORD_FIRE_K=6,VIC_HIT=8,VIC_SPD=1.5,LORD_KEYS=['mz_lord_v2','mz_lord_v3'],
+  VIC_KEYS=['mz_victim_black_dress','mz_victim_blonde_gown','mz_victim_lace','mz_victim_maid','mz_victim_nightgown'],LORD_HOME=[43.5,34];
+const KFIRE=-1; // fire's kind, for the finishing blow
+// a clear spot in one of the house's rooms (k: a floor, or any)
+function lordSpot(k,away,minD){for(let t=0;t<60;t++){const kk=k==null?pickA([0,1,2,3]):k,rs=M.rooms.filter(r=>r.k===kk&&(r.X1-r.X0)*(r.Z1-r.Z0)>=9&&!['balcony','cons','sstairs'].includes(r.id));if(!rs.length)continue;
+    const r=pickA(rs),x=r.X0+1.2+Math.random()*Math.max(.1,r.X1-r.X0-2.2),z=r.Z0+1.2+Math.random()*Math.max(.1,r.Z1-r.Z0-2.2),i=idx(Math.floor(x),Math.floor(z));
+    if(LEVELS[kk].solid[i]||stA[i]>=0)continue;if(away&&Math.hypot(away.x-x,away.z-z)+Math.abs(away.y-LVY[kk])*2<(minD||0))continue;return [x,LVY[kk],z];}return null;}
+// ---- host
+function spawnLord(W){const z=makeZombie(W,8,LORD_HOME[0],LORD_HOME[1]);z.y=LVY[0];
+  z.hp=Math.round((WENDIGO_HP_BASE+WENDIGO_HP_PER*W.n)*DIFF_HP[diffIx(W.diff)]);z.lock=10;z.dmg=0;
+  W.ld={max:z.hp,ph:0,solid:0,heart:0,heartMax:1,drag:null,dragCd:8,sumCd:6,atkCd:0,tgt:null,tgtT:0,vics:[],nv:0};W.wdSpawned=1;addNoise(W,z.x,z.y,z.z,30,'boom');}
+{const _sw=spawnWendigo;spawnWendigo=function(W,alive){if(MAPCUR==='m'){spawnLord(W);return;}return _sw(W,alive);};}
+function lordHurt(W,z,d,key,kind){const L=W.ld;if(!L)return;if(key){z.last=key;z.lastK=kind;z.hitters[key]=1;}
+  if(L.solid>0){if(kind!==KD.KNIFE&&kind!==KFIRE)return; // solid: only the blade or fire finishes him
+    L.heart-=d;if(L.heart<=0){z.hp=0;L.solid=0;L.vics=[];simKill(W,z);}return;}
+  z.hp-=d;if(z.hp>0)return;
+  z.hp=1;L.solid=LORD_SOLID;L.heartMax=L.heart=Math.max(600,Math.round(L.max*.12));L.drag=null;z.atk=0;lordLand(z);addNoise(W,z.x,z.y,z.z,20,'boom');}
+// solid, he can't stand in a wall or hang between floors: he drops to the nearest open floor
+function lordLand(z){const k=lvIdx(z.y+.3),L=LEVELS[k],cx=Math.floor(z.x),cz=Math.floor(z.z);
+  for(let r=0;r<8;r++)for(let dx=-r;dx<=r;dx++)for(let dz=-r;dz<=r;dz++){if(Math.max(Math.abs(dx),Math.abs(dz))!==r)continue;const x=cx+dx,zz=cz+dz,i=idx(x,zz);
+    if(L.solid[i]||stA[i]>=0||!M.rooms.some(q=>q.k===k&&x>=q.X0&&x<q.X1&&zz>=q.Z0&&zz<q.Z1))continue;z.x=x+.5;z.z=zz+.5;z.y=LVY[k];z.vy=0;return;}z.y=LVY[k];}
+LORD_HURT=lordHurt;
+function stepLord(W,dt,players){const L=W.ld,z=W.zs.find(q=>q.type===8);if(!L||!z){if(L)L.vics=[];return;}
+  const alive=players.filter(p=>p.alive),ph=Math.min(3,L.ph),mul=waveInfo(10,W.n,W.diff).dmgMul;
+  // fire burns him (a lot harder once he's solid)
+  for(const F of W.fires||[])if(Math.hypot(z.x-F.x,z.z-F.z)<FIRE_R+.3&&Math.abs(z.y-F.y)<1.4)lordHurt(W,z,FIRE_ZDPS*dt*(L.solid>0?LORD_FIRE_K:1),null,KFIRE);
+  if(!W.zs.includes(z))return; // that was the end of him
+  z.atk=Math.max(0,(z.atk||0)-dt);L.atkCd-=dt;L.dragCd-=dt;L.sumCd-=dt;
+  const ground=()=>{const g=groundAt(z.x,z.z,z.y+.4);if(g>=z.y-.6){z.y=g;z.vy=0;}else{z.vy=(z.vy||0)-22*dt;z.y=Math.max(g,z.y+z.vy*dt);}};
+  if(L.solid>0){ // solid, slow, harmless: finish him or he rises again
+    L.solid-=dt;const p=alive.slice().sort((a,b)=>dist2(a,z)-dist2(b,z))[0];
+    if(p){const dx=p.x-z.x,dz=p.z-z.z,d=Math.hypot(dx,dz);if(d>1.2)moveEnt(z,dx/d*dt,dz/d*dt,.4);z.face=Math.atan2(dx,dz);}ground();
+    if(L.solid<=0){L.solid=0;z.hp=Math.max(1,Math.round(L.max*LORD_CAPS[Math.min(L.ph,2)]));L.ph=Math.min(3,L.ph+1);L.dragCd=Math.min(L.dragCd,4);L.sumCd=Math.min(L.sumCd,3);addNoise(W,z.x,z.y,z.z,40,'boom');}
+    stepVictims(W,dt,alive,ph,mul);return;}
+  // dragging someone through the house
+  if(L.drag){const D=L.drag,v=alive.find(p=>p.key===D.key);D.t-=dt;
+    const dx=D.x-z.x,dy=D.y-z.y,dz=D.z-z.z,dd=Math.hypot(dx,dy,dz),s=Math.min(dd,Math.max(2,D.d/LORD_DRAG_T)*dt);
+    if(dd>.01){z.x+=dx/dd*s;z.y+=dy/dd*s;z.z+=dz/dd*s;z.face=Math.atan2(dx,dz);}
+    if(!v||D.t<=0||dd<.05){if(v)W.taken[v.key]=(W.taken[v.key]||0)+LORD_DROP[ph]*mul;L.drag=null;L.dragCd=LORD_DRAG_CD[ph];L.atkCd=2;z.x=D.x;z.y=D.y;z.z=D.z;}
+    stepVictims(W,dt,alive,ph,mul);return;}
+  // whoever's nearest, walls and floors notwithstanding (he keeps a target a few seconds)
+  L.tgtT-=dt;let t=alive.find(p=>p.key===L.tgt);
+  if(!t||L.tgtT<=0){t=alive.slice().sort((a,b)=>(Math.hypot(a.x-z.x,a.z-z.z)+Math.abs(a.y-z.y)*3)-(Math.hypot(b.x-z.x,b.z-z.z)+Math.abs(b.y-z.y)*3))[0];L.tgt=t?t.key:null;L.tgtT=5;}
+  if(t){const dx=t.x-z.x,dz=t.z-z.z,d=Math.hypot(dx,dz),dy=t.y-z.y;
+    if(d>1.1){const s=Math.min(d-1,LORD_SPD[ph]*dt);z.x+=dx/d*s;z.z+=dz/d*s;}
+    if(Math.abs(dy)>.05)z.y+=Math.sign(dy)*Math.min(Math.abs(dy),2.2*dt); // up and down through the floors
+    z.face=Math.atan2(dx,dz);z.x=Math.max(BND.x0+1,Math.min(BND.x1-1,z.x));z.z=Math.max(BND.z0+1,Math.min(BND.z1-1,z.z));
+    if(d<1.5&&Math.abs(dy)<.8&&L.atkCd<=0){
+      if(L.dragCd<=0){const s=lordSpot(null,{x:z.x,y:z.y,z:z.z},12);
+        if(s){L.drag={key:t.key,t:LORD_DRAG_T,x:s[0],y:s[1],z:s[2],d:Math.hypot(s[0]-z.x,(s[1]-z.y),s[2]-z.z)};z.atk=.5;addNoise(W,z.x,z.y,z.z,14,'creak');}else L.dragCd=3;}
+      else{W.taken[t.key]=(W.taken[t.key]||0)+LORD_HIT[ph]*mul;z.atk=.35;L.atkCd=1.4-.15*ph;}}}
+  // his victims
+  if(L.sumCd<=0&&alive.length){L.sumCd=LORD_SUM_CD[ph];let n=Math.min(LORD_SUM_N[ph],LORD_VIC_MAX[ph]-L.vics.length);
+    while(n-->0){const p=pickA(alive),k=lvIdx(p.y);for(let tr=0;tr<20;tr++){const a=Math.random()*6.283,r=5+Math.random()*4,x=p.x+Math.cos(a)*r,zz=p.z+Math.sin(a)*r;
+        if(x<BND.x0+1||x>BND.x1-1||zz<BND.z0+1||zz>BND.z1-1||LEVELS[k].solid[idx(Math.floor(x),Math.floor(zz))])continue;
+        L.vics.push({id:++L.nv,k:Math.floor(Math.random()*VIC_KEYS.length),x,y:LVY[k],z:zz,ry:0,cd:1});break;}}}
+  stepVictims(W,dt,alive,ph,mul);}
+function stepVictims(W,dt,alive,ph,mul){const L=W.ld;
+  for(const v of L.vics){v.cd-=dt;let t=null,td=1e9;for(const p of alive){const d=Math.hypot(p.x-v.x,p.z-v.z)+Math.abs(p.y-v.y)*3;if(d<td){td=d;t=p;}}if(!t)continue;
+    const dx=t.x-v.x,dz=t.z-v.z,d=Math.hypot(dx,dz),dy=t.y-v.y;v.ry=Math.atan2(dx,dz);
+    if(d>.7){const s=Math.min(d-.6,(VIC_SPD+.2*ph)*dt);v.x+=dx/d*s;v.z+=dz/d*s;}if(Math.abs(dy)>.05)v.y+=Math.sign(dy)*Math.min(Math.abs(dy),1.4*dt);
+    if(d<1&&Math.abs(dy)<.9&&v.cd<=0){W.taken[t.key]=(W.taken[t.key]||0)+VIC_HIT*mul;v.cd=1.5;}}}
+function simApplyLord(W,key,lq){if(!lq||lq.r!==W.run||!Array.isArray(lq.q)||MAPCUR!=='m'||!W.ld)return;const seen=W.ldS||(W.ldS={});
+  for(const a of lq.q){if(a[1]!=='vknife')continue;const n=a[0];if(n<=(seen[key]||0))continue;seen[key]=n;
+    const p=(W._players||[]).find(q=>q.key===key),i=W.ld.vics.findIndex(v=>v.id===a[2]);if(i<0||!p)continue;const v=W.ld.vics[i];
+    if(Math.hypot(p.x-v.x,p.z-v.z)<2.8&&Math.abs(p.y-v.y)<1.5){W.ld.vics.splice(i,1);W.earned[key]=(W.earned[key]||0)+REWARD.knife;}}}
+{const _sal5=simApplyLamp;simApplyLamp=function(W,key,lq){_sal5(W,key,lq);simApplyLord(W,key,lq);};}
+{const _ss8=simStep;simStep=function(W,dt,players){_ss8(W,dt,players);if(MAPCUR!=='m'||W.st!==1||W.wave!==10||!W.ld)return;try{stepLord(W,dt,players||[]);}catch(e){if(!M.ldErr){M.ldErr=1;console.warn('lord',e);}}};}
+{const _pw9=packW;packW=function(W){const s=_pw9(W);if(MAPCUR!=='m'||!W.ld||W.wave!==10)return s;const L=W.ld,r1=v=>Math.round(v*10);
+  s.ld=[L.max,L.ph,L.solid>0?Math.ceil(L.solid):0,L.solid>0?Math.max(0,Math.round(L.heart/L.heartMax*100)):0,L.drag?L.drag.key:'',L.drag?r1(L.drag.x):0,L.drag?r1(L.drag.y):0,L.drag?r1(L.drag.z):0];
+  if(L.vics.length)s.lv=L.vics.map(v=>[v.id,v.k,r1(v.x),r1(v.y),r1(v.z),Math.round(v.ry*100)]);return s;};}
+{const _aw9=adoptW;adoptW=function(S0,pr){const W=_aw9(S0,pr);if(S0&&S0.mp==='m'&&S0.ld){const q=S0.ld;
+  W.ld={max:q[0],ph:q[1],solid:q[2]||0,heart:0,heartMax:1,drag:null,dragCd:6,sumCd:8,atkCd:1,tgt:null,tgtT:0,nv:0,vics:(S0.lv||[]).map(v=>({id:v[0],k:v[1],x:v[2]/10,y:v[3]/10,z:v[4]/10,ry:v[5]/100,cd:1}))};
+  if(W.ld.solid){W.ld.heartMax=Math.max(600,Math.round(q[0]*.12));W.ld.heart=W.ld.heartMax*(q[3]||0)/100;}W.ld.nv=W.ld.vics.reduce((m,v)=>Math.max(m,v.id),0);}return W;};}
+// ---- your side
+const LDC={ph:0,solid:0,heart:0,max:1,drag:'',dx:0,dy:0,dz:0,vics:{},vm:{},gl:null,glT:10,glW:-1,dragged:false,run:-1};
+function ghostMat(m,key,op,tint){m.skin.mesh.material=m.skin.mesh.material.clone();const mt=m.skin.mesh.material;mt.transparent=true;mt.opacity=op;mt.depthWrite=false;if(tint!=null)mt.color.setHex(tint);
+  if(SKM[key]){mt.onBeforeCompile=SKM[key].onBeforeCompile;mt.customProgramCacheKey=()=>'skzg'+key;}return m;}
+function ghostBody(key,op,tint){const m=skinZombie(0,false,false,key);SKZ.delete(m);return ghostMat(m,key,op,tint);}
+{const _zm8=zMesh;zMesh=function(type,drop,smart){if(MAPCUR==='m'&&type===8){const m=skinZombie(8,drop,smart,LORD_KEYS[LDC.ph>=2?1:0]);m.lkey=LORD_KEYS[LDC.ph>=2?1:0];return m;}return _zm8(type,drop,smart);};}
+LORD_BAR=(c,el)=>{const b=el.querySelector('b'),i=el.querySelector('i');
+  if(LDC.solid){b.textContent='The Lord · finish him: blade or fire';i.style.width=LDC.heart+'%';i.style.background='#d8d0c0';}
+  else{b.textContent=['The Lord','The Lord · risen','The Lord · risen again','The Lord · one last time'][Math.min(3,LDC.ph)];i.style.width=Math.max(0,Math.min(100,(c.hp-(c.pending||0))/LDC.max*100)).toFixed(1)+'%';i.style.background='';}};
+function lordApply(s){const q=s.ld;
+  if(s.r!==LDC.run){LDC.run=s.r;LDC.ph=0;LDC.solid=0;LDC.drag='';LDC.dragged=false;}
+  if(!q){for(const id in LDC.vm){scene.remove(LDC.vm[id].g);}LDC.vm={};LDC.vics={};if(LDC.dragged)lordDrop();LDC.drag='';return;}
+  const wasSolid=LDC.solid,wasPh=LDC.ph;LDC.max=q[0];LDC.ph=q[1];LDC.solid=q[2];LDC.heart=q[3];
+  if(q[2]&&!wasSolid)toast('','He\'s solid. Finish him: the knife, or fire');
+  if(q[1]>wasPh&&!q[2])toast('The Lord rises again','');
+  const me=myKey();if(q[4]===me&&!LDC.dragged){LDC.dragged=true;toast('','He has you');}
+  if(q[4]===me){LDC.dx=q[5]/10;LDC.dy=q[6]/10;LDC.dz=q[7]/10;}
+  if(LDC.dragged&&q[4]!==me)lordDrop();
+  LDC.drag=q[4]||'';
+  // his victims
+  const seen={};for(const v of s.lv||[]){seen[v[0]]=1;let o=LDC.vics[v[0]];if(!o){o=LDC.vics[v[0]]={x:v[2]/10,y:v[3]/10,z:v[4]/10};burst(o.x,o.y+1,o.z,10,shardM,1.5,.05);}
+    Object.assign(o,{k:v[1],tx:v[2]/10,ty:v[3]/10,tz:v[4]/10,ry:v[5]/100});}
+  for(const id in LDC.vics)if(!seen[id]){const o=LDC.vics[id];burst(o.x,o.y+1,o.z,22,shardM,2.5,.05);marySound(o.x,o.y+1.4,o.z,.9,false);delete LDC.vics[id];}}
+function lordDrop(){LDC.dragged=false;if(!P.alive)return;P.x=LDC.dx;P.z=LDC.dz;P.y=Math.max(LDC.dy,groundAt(P.x,P.z,LDC.dy+.5));P.vy=0;startGetUp('wake');}
+{const _os9=onSnapshot;onSnapshot=function(s){const r=_os9(s);try{if(s&&MAPCUR==='m'&&M.rooms)lordApply(s);}catch(e){if(!M.ldErr2){M.ldErr2=1;console.warn('lord',e);}}return r;};}
+// wave 9: a glimpse of one of his victims, now and then, just for you
+function glimpseSpot(){const cp=camera.position;camera.getWorldDirection(_mf);const k=lvIdx(P.y),yaw=Math.atan2(_mf.x,_mf.z);
+  for(let t=0;t<30;t++){const a=yaw+(Math.random()-.5)*1.1,d=7+Math.random()*9,x=cp.x+Math.sin(a)*d,z=cp.z+Math.cos(a)*d;
+    if(x<BND.x0+1||x>BND.x1-1||z<BND.z0+1||z>BND.z1-1||LEVELS[k].solid[idx(Math.floor(x),Math.floor(z))])continue;
+    if(!M.rooms.some(q=>q.k===k&&q.id!=='balcony'&&x>=q.X0+.6&&x<q.X1-.6&&z>=q.Z0+.6&&z<q.Z1-.6))continue; // inside the house
+    const dy=LVY[k]+1.4-cp.y,dd=Math.hypot(x-cp.x,dy,z-cp.z);if(wallHit(cp.x,cp.y,cp.z,(x-cp.x)/dd,dy/dd,(z-cp.z)/dd,dd)<dd-.4||!gridSees(cp.x,cp.z,x,z,k))continue;return [x,LVY[k],z];}return null;}
+// a clear line across one floor of the house's grid (walls and shut doors stop it)
+function gridSees(x0,z0,x1,z1,k){const L=LEVELS[k],d=Math.hypot(x1-x0,z1-z0),n=Math.ceil(d/.2);for(let i=1;i<n;i++){const x=x0+(x1-x0)*i/n,z=z0+(z1-z0)*i/n;if(L.solid[idx(Math.floor(x),Math.floor(z))])return false;}return true;}
+function lordFrame(dt){if(MAPCUR!=='m'||!inGame()){if(LDC.gl){scene.remove(LDC.gl.m.g);LDC.gl=null;}return;}
+  const cp=camera.position,now_=performance.now()/1000;
+  // the glimpses
+  if(S&&S.w===9&&S.ph==='w'&&P.alive){if(LDC.glW!==S.r*100+9){LDC.glW=S.r*100+9;LDC.glT=6+Math.random()*8;}
+    if(!LDC.gl){LDC.glT-=dt;if(LDC.glT<=0){const s=glimpseSpot();LDC.glT=s?14+Math.random()*14:2;
+        if(s){const key=pickA(VIC_KEYS),m=ghostBody(key,.0,0xd0d8e0);m.g.position.set(s[0],s[1],s[2]);m.g.rotation.y=Math.atan2(cp.x-s[0],cp.z-s[2]);scene.add(m.g);LDC.gl={m,t:0,look:0,out:0};}}}
+    else{const G=LDC.gl,g=G.m.g.position,mt=G.m.skin.mesh.material;G.t+=dt;camera.getWorldDirection(_mf);
+      const dx=g.x-cp.x,dy=g.y+1.4-cp.y,dz=g.z-cp.z,d=Math.hypot(dx,dy,dz),c=(dx*_mf.x+dy*_mf.y+dz*_mf.z)/(d||1);if(c>.985)G.look+=dt;
+      if(!G.out&&(G.look>.3||Math.hypot(dx,dz)<6||G.t>4)){G.out=1;marySound(g.x,g.y+1.4,g.z,.5,true);}
+      mt.opacity=G.out?Math.max(0,mt.opacity-dt*3.5):Math.min(.78,mt.opacity+dt*2.5);
+      if(G.out&&mt.opacity<=0){scene.remove(G.m.g);LDC.gl=null;}}}
+  else if(LDC.gl){scene.remove(LDC.gl.m.g);LDC.gl=null;}
+  // his body: torn coat, then the worse one; flickering while he walks through walls, solid when he's down
+  for(const id in CZ){const c=CZ[id];if(c.type!==8||c.dying||!c.m)continue;const want=LORD_KEYS[LDC.ph>=2?1:0];
+    if(c.m.lkey!==want){const g=c.m.g,pos=g.position.clone(),ry=g.rotation.y;SKZ.delete(c.m);scene.remove(g);const m=castOnM(skinZombie(8,false,false,want));m.lkey=want;m.g.position.copy(pos);m.g.rotation.y=ry;scene.add(m.g);c.m=m;
+      burst(c.x,c.y+1.2,c.z,30,shardM,3,.06);}
+    const mt=c.m.skin&&c.m.skin.mesh.material;if(mt){if(!mt.userData.lord){c.m.skin.mesh.material=mt.clone();c.m.skin.mesh.material.userData.lord=1;const k=c.m.lkey;
+        if(SKM[k]){c.m.skin.mesh.material.onBeforeCompile=SKM[k].onBeforeCompile;c.m.skin.mesh.material.customProgramCacheKey=()=>'skzl'+k;}}
+      const m2=c.m.skin.mesh.material;m2.transparent=!LDC.solid;m2.opacity=LDC.solid?1:.72+.18*Math.sin(now_*5+(+id))+(Math.random()<.04?-.4:0);m2.color.setHex(LDC.solid?0xffffff:0xc8d4e0);}}
+  // being dragged: you go where he goes
+  if(LDC.dragged&&P.alive){let c=null;for(const id in CZ)if(CZ[id].type===8&&!CZ[id].dying)c=CZ[id];
+    if(c){const f=c.m&&c.m.g?c.m.g.rotation.y:0;P.x=c.x+Math.sin(f)*.35;P.z=c.z+Math.cos(f)*.35;P.y=c.y;P.vy=0;P.firing=false;P.ads=0;
+      camera.position.set(P.x,P.y+1.3,P.z);camera.rotation.z+=Math.sin(now_*31)*.06;camera.rotation.x+=Math.sin(now_*23)*.04;if(VM&&VM.g)VM.g.visible=false;}}
+  // the victims
+  for(const id in LDC.vics){const o=LDC.vics[id];let m=LDC.vm[id];if(!m){m=LDC.vm[id]=ghostBody(VIC_KEYS[o.k]||VIC_KEYS[0],.55,0xb8c8d8);scene.add(m.g);}
+    const k=Math.min(1,dt*8);o.x+=(o.tx-o.x)*k;o.y+=(o.ty-o.y)*k;o.z+=(o.tz-o.z)*k;m.g.position.set(o.x,o.y,o.z);m.g.rotation.y=o.ry;
+    m.skin.mesh.material.opacity=.45+.15*Math.sin(now_*3+(+id));}
+  for(const id in LDC.vm)if(!LDC.vics[id]){scene.remove(LDC.vm[id].g);delete LDC.vm[id];}}
+{const _lt9=lookTick;lookTick=function(dt){_lt9(dt);try{lordFrame(dt);}catch(e){if(!M.ldErr3){M.ldErr3=1;console.warn('lord',e);}}};}
+// a blade puts his victims down; held fast while he drags you
+{const _kn2=knife;knife=function(){if(MAPCUR==='m'&&LDC.dragged)return;if(MAPCUR==='m'&&inGame()&&P.alive&&P.knifeT<=0){const fx=-Math.sin(P.yaw),fz=-Math.cos(P.yaw);let best=null,bd=2.3;
+    for(const id in LDC.vics){const o=LDC.vics[id],dx=o.x-P.x,dz=o.z-P.z,d=Math.hypot(dx,dz);if(d<bd&&Math.abs(o.y-P.y)<1.3&&(dx*fx+dz*fz)/Math.max(d,.01)>.5){bd=d;best=id;}}
+    if(best){lampAct('vknife',+best);const o=LDC.vics[best];burst(o.x,o.y+1.2,o.z,12,shardM,2,.05);}}
+  return _kn2();};}
+{const _fi4=fire;fire=function(){if(MAPCUR==='m'&&LDC.dragged)return;return _fi4();};}
+M.lord=LDC;
+
+/* ================= THE MANSION'S DEAD =================
+   Ordinary zombies are the house's guests and its staff, in their period clothes; the runner, brute and stalker have mansion
+   versions too. Every wave the staff turn out one or two of each (footman, cook, maid, butler); the rest are guests.
+   The looks are dealt from a deck seeded by the run and the wave, in the order the zombies appear, so every player sees the
+   same faces. Hounds stay as they are. */
+Object.assign(SKP,{"mz_brute": {"cw": 256, "cellH": 512, "ppm": 260.75, "cx": 126.5, "cz": 128.0, "top": [21, 20, 25], "bot": [506, 507, 507], "cx2": 129.5, "headW": 0.196, "neckW": 0.134, "shW": 0.502, "armX": 0.303, "armW": 0.111, "torsoW": 0.468, "handF": 0.38, "hipW": 0.686, "legX": 0.127, "legW": 0.169, "kneeW": 0.169, "ankleW": 0.134, "headD": 0.215, "headZ": 0.031, "neckD": 0.203, "neckZ": 0.021, "chestD": 0.36, "chestZ": -0.019, "waistD": 0.364, "waistZ": 0.006, "hipD": 0.384, "hipZ": -0.015, "thighD": 0.23, "thighZ": 0.0, "shinD": 0.188, "shinZ": -0.044, "footD": 0.341, "footZ": 0.04}, "mz_guest1": {"cw": 256, "cellH": 512, "ppm": 261.83, "cx": 127.0, "cz": 124.0, "top": [19, 19, 22], "bot": [506, 507, 507], "cx2": 128.0, "headW": 0.206, "neckW": 0.153, "shW": 0.47, "armX": 0.262, "armW": 0.034, "torsoW": 0.454, "handF": 0.44, "hipW": 0.558, "legX": 0.242, "legW": 0.025, "kneeW": 0.132, "ankleW": 0.115, "headD": 0.214, "headZ": 0.004, "neckD": 0.137, "neckZ": -0.027, "chestD": 0.283, "chestZ": -0.023, "waistD": 0.294, "waistZ": -0.01, "hipD": 0.298, "hipZ": -0.034, "thighD": 0.279, "thighZ": -0.052, "shinD": 0.157, "shinZ": -0.04, "footD": 0.29, "footZ": 0.034}, "mz_guest2": {"cw": 256, "cellH": 512, "ppm": 261.83, "cx": 128.0, "cz": 121.5, "top": [20, 23, 15], "bot": [507, 507, 506], "cx2": 129.0, "headW": 0.202, "neckW": 0.13, "shW": 0.405, "armX": 0.198, "armW": 0.082, "torsoW": 0.271, "handF": 0.64, "hipW": 0.527, "legX": 0.11, "legW": 0.296, "kneeW": 0.653, "ankleW": 0.185, "headD": 0.248, "headZ": -0.004, "neckD": 0.099, "neckZ": -0.006, "chestD": 0.218, "chestZ": 0.019, "waistD": 0.382, "waistZ": -0.025, "hipD": 0.439, "hipZ": -0.011, "thighD": 0.493, "thighZ": -0.011, "shinD": 0.554, "shinZ": -0.011, "footD": 0.447, "footZ": -0.038, "skirt": [[0.5, 0.267, 0.21, -0.021], [0.44, 0.264, 0.22, -0.011], [0.38, 0.267, 0.239, -0.019], [0.3, 0.296, 0.252, -0.01], [0.22, 0.327, 0.271, -0.006], [0.14, 0.346, 0.286, -0.013], [0.08, 0.336, 0.252, -0.067], [0.035, 0.145, 0.216, -0.069]]}, "mz_guest3": {"cw": 256, "cellH": 512, "ppm": 262.37, "cx": 129.5, "cz": 137.5, "top": [18, 15, 12], "bot": [506, 507, 507], "cx2": 128.5, "headW": 0.217, "neckW": 0.114, "shW": 0.396, "armX": 0.198, "armW": 0.08, "torsoW": 0.232, "handF": 0.62, "hipW": 0.515, "legX": 0.11, "legW": 0.288, "kneeW": 0.625, "ankleW": 0.705, "headD": 0.271, "headZ": 0.023, "neckD": 0.118, "neckZ": 0.023, "chestD": 0.229, "chestZ": -0.006, "waistD": 0.358, "waistZ": 0.029, "hipD": 0.465, "hipZ": 0.044, "thighD": 0.503, "thighZ": 0.032, "shinD": 0.556, "shinZ": 0.029, "footD": 0.431, "footZ": 0.046, "skirt": [[0.5, 0.267, 0.204, 0.03], [0.44, 0.257, 0.232, 0.044], [0.38, 0.274, 0.232, 0.029], [0.3, 0.288, 0.248, 0.025], [0.22, 0.313, 0.265, 0.027], [0.14, 0.341, 0.276, 0.019], [0.08, 0.353, 0.293, 0.025], [0.035, 0.33, 0.255, 0.036]]}, "mz_guest4": {"cw": 256, "cellH": 512, "ppm": 262.37, "cx": 128.5, "cz": 138.0, "top": [19, 18, 18], "bot": [507, 506, 507], "cx2": 130.0, "headW": 0.198, "neckW": 0.084, "shW": 0.396, "armX": 0.184, "armW": 0.078, "torsoW": 0.213, "handF": 0.62, "hipW": 0.446, "legX": 0.11, "legW": 0.269, "kneeW": 0.587, "ankleW": 0.682, "headD": 0.217, "headZ": 0.013, "neckD": 0.141, "neckZ": -0.01, "chestD": 0.232, "chestZ": 0.01, "waistD": 0.278, "waistZ": 0.013, "hipD": 0.37, "hipZ": 0.025, "thighD": 0.435, "thighZ": 0.03, "shinD": 0.511, "shinZ": 0.038, "footD": 0.358, "footZ": 0.034, "skirt": [[0.5, 0.244, 0.166, 0.021], [0.44, 0.223, 0.185, 0.025], [0.38, 0.242, 0.2, 0.029], [0.3, 0.269, 0.223, 0.029], [0.22, 0.293, 0.242, 0.032], [0.14, 0.32, 0.267, 0.038], [0.08, 0.341, 0.28, 0.04], [0.035, 0.133, 0.21, 0.057]]}, "mz_guest5": {"cw": 256, "cellH": 512, "ppm": 262.37, "cx": 127.0, "cz": 124.5, "top": [18, 17, 21], "bot": [506, 507, 507], "cx2": 128.0, "headW": 0.194, "neckW": 0.187, "shW": 0.492, "armX": 0.273, "armW": 0.034, "torsoW": 0.473, "handF": 0.44, "hipW": 0.579, "legX": 0.237, "legW": 0.032, "kneeW": 0.137, "ankleW": 0.12, "headD": 0.21, "headZ": 0.015, "neckD": 0.152, "neckZ": -0.029, "chestD": 0.305, "chestZ": -0.021, "waistD": 0.309, "waistZ": -0.011, "hipD": 0.313, "hipZ": -0.036, "thighD": 0.316, "thighZ": -0.061, "shinD": 0.172, "shinZ": -0.034, "footD": 0.297, "footZ": 0.044}, "mz_guest6": {"cw": 256, "cellH": 512, "ppm": 262.37, "cx": 127.0, "cz": 123.0, "top": [19, 20, 21], "bot": [507, 507, 507], "cx2": 129.0, "headW": 0.183, "neckW": 0.164, "shW": 0.473, "armX": 0.258, "armW": 0.04, "torsoW": 0.442, "handF": 0.46, "hipW": 0.526, "legX": 0.131, "legW": 0.248, "kneeW": 0.128, "ankleW": 0.107, "headD": 0.198, "headZ": 0.004, "neckD": 0.137, "neckZ": -0.034, "chestD": 0.286, "chestZ": -0.021, "waistD": 0.286, "waistZ": -0.013, "hipD": 0.305, "hipZ": -0.03, "thighD": 0.328, "thighZ": -0.042, "shinD": 0.156, "shinZ": -0.044, "footD": 0.278, "footZ": 0.032}, "mz_runner": {"cw": 256, "cellH": 512, "ppm": 263.98, "cx": 126.5, "cz": 133.0, "top": [16, 18, 20], "bot": [507, 507, 507], "cx2": 128.5, "headW": 0.242, "neckW": 0.106, "shW": 0.424, "armX": 0.243, "armW": 0.044, "torsoW": 0.352, "handF": 0.42, "hipW": 0.542, "legX": 0.11, "legW": 0.152, "kneeW": 0.144, "ankleW": 0.098, "headD": 0.258, "headZ": 0.004, "neckD": 0.159, "neckZ": 0.019, "chestD": 0.265, "chestZ": -0.019, "waistD": 0.25, "waistZ": 0.011, "hipD": 0.22, "hipZ": 0.0, "thighD": 0.193, "thighZ": -0.009, "shinD": 0.159, "shinZ": -0.045, "footD": 0.311, "footZ": 0.038}, "mz_staff1": {"cw": 256, "cellH": 512, "ppm": 262.37, "cx": 126.5, "cz": 127.0, "top": [19, 20, 22], "bot": [507, 506, 507], "cx2": 128.0, "headW": 0.187, "neckW": 0.194, "shW": 0.469, "armX": 0.26, "armW": 0.09, "torsoW": 0.396, "handF": 0.44, "hipW": 0.56, "legX": 0.111, "legW": 0.133, "kneeW": 0.131, "ankleW": 0.101, "headD": 0.206, "headZ": 0.015, "neckD": 0.141, "neckZ": -0.025, "chestD": 0.274, "chestZ": -0.015, "waistD": 0.274, "waistZ": -0.008, "hipD": 0.286, "hipZ": -0.032, "thighD": 0.286, "thighZ": -0.051, "shinD": 0.145, "shinZ": -0.034, "footD": 0.282, "footZ": 0.042}, "mz_staff2": {"cw": 256, "cellH": 512, "ppm": 261.83, "cx": 128.0, "cz": 125.5, "top": [20, 20, 24], "bot": [507, 507, 507], "cx2": 131.0, "headW": 0.206, "neckW": 0.095, "shW": 0.435, "armX": 0.243, "armW": 0.04, "torsoW": 0.401, "handF": 0.52, "hipW": 0.55, "legX": 0.11, "legW": 0.281, "kneeW": 0.6, "ankleW": 0.074, "headD": 0.244, "headZ": 0.017, "neckD": 0.225, "neckZ": 0.004, "chestD": 0.267, "chestZ": 0.01, "waistD": 0.317, "waistZ": 0.008, "hipD": 0.374, "hipZ": 0.006, "thighD": 0.435, "thighZ": 0.002, "shinD": 0.397, "shinZ": -0.006, "footD": 0.264, "footZ": 0.034, "skirt": [[0.5, 0.243, 0.181, 0.0], [0.44, 0.254, 0.187, 0.006], [0.38, 0.256, 0.204, 0.004], [0.3, 0.281, 0.222, 0.002], [0.22, 0.3, 0.227, -0.008], [0.14, 0.139, 0.046, -0.032], [0.08, 0.141, 0.078, -0.011], [0.035, 0.178, 0.116, 0.019]]}, "mz_staff3": {"cw": 256, "cellH": 512, "ppm": 262.9, "cx": 127.5, "cz": 128.5, "top": [18, 19, 22], "bot": [507, 506, 506], "cx2": 130.0, "headW": 0.224, "neckW": 0.099, "shW": 0.407, "armX": 0.192, "armW": 0.087, "torsoW": 0.24, "handF": 0.62, "hipW": 0.483, "legX": 0.11, "legW": 0.281, "kneeW": 0.609, "ankleW": 0.061, "headD": 0.236, "headZ": 0.013, "neckD": 0.213, "neckZ": 0.006, "chestD": 0.251, "chestZ": 0.013, "waistD": 0.323, "waistZ": 0.008, "hipD": 0.384, "hipZ": 0.015, "thighD": 0.456, "thighZ": 0.01, "shinD": 0.506, "shinZ": 0.004, "footD": 0.24, "footZ": 0.042, "skirt": [[0.5, 0.257, 0.179, 0.01], [0.44, 0.242, 0.192, 0.015], [0.38, 0.255, 0.207, 0.011], [0.3, 0.281, 0.232, 0.013], [0.22, 0.304, 0.242, 0.004], [0.14, 0.211, 0.184, 0.004], [0.08, 0.118, 0.061, -0.002], [0.035, 0.148, 0.126, 0.044]]}, "mz_staff4": {"cw": 256, "cellH": 512, "ppm": 261.83, "cx": 126.5, "cz": 125.5, "top": [20, 20, 22], "bot": [507, 507, 507], "cx2": 128.5, "headW": 0.183, "neckW": 0.16, "shW": 0.462, "armX": 0.208, "armW": 0.015, "torsoW": 0.126, "handF": 0.32, "hipW": 0.508, "legX": 0.096, "legW": 0.12, "kneeW": 0.12, "ankleW": 0.101, "headD": 0.202, "headZ": 0.015, "neckD": 0.137, "neckZ": -0.029, "chestD": 0.279, "chestZ": -0.019, "waistD": 0.283, "waistZ": -0.01, "hipD": 0.279, "hipZ": -0.034, "thighD": 0.26, "thighZ": -0.059, "shinD": 0.157, "shinZ": -0.042, "footD": 0.271, "footZ": 0.031}, "mz_stalker": {"cw": 256, "cellH": 512, "ppm": 262.37, "cx": 126.0, "cz": 129.0, "top": [18, 19, 22], "bot": [506, 507, 507], "cx2": 129.0, "headW": 0.255, "neckW": 0.114, "shW": 0.476, "armX": 0.172, "armW": 0.135, "torsoW": 0.172, "handF": 0.34, "hipW": 0.61, "legX": 0.112, "legW": 0.16, "kneeW": 0.152, "ankleW": 0.118, "headD": 0.213, "headZ": 0.03, "neckD": 0.194, "neckZ": 0.025, "chestD": 0.301, "chestZ": -0.021, "waistD": 0.339, "waistZ": -0.002, "hipD": 0.339, "hipZ": -0.017, "thighD": 0.206, "thighZ": 0.011, "shinD": 0.179, "shinZ": -0.025, "footD": 0.316, "footZ": 0.048}, "mz_kid_green1": {"cw": 256, "cellH": 512, "ppm": 264.52, "cx": 127.5, "cz": 121.5, "top": [14, 20, 18], "bot": [506, 507, 507], "cx2": 127.0, "headW": 0.231, "neckW": 0.113, "shW": 0.348, "armX": 0.171, "armW": 0.081, "torsoW": 0.204, "handF": 0.64, "hipW": 0.457, "legX": 0.11, "legW": 0.282, "kneeW": 0.643, "ankleW": 0.057, "headD": 0.25, "headZ": -0.021, "neckD": 0.144, "neckZ": 0.017, "chestD": 0.2, "chestZ": -0.004, "waistD": 0.287, "waistZ": -0.006, "hipD": 0.382, "hipZ": -0.015, "thighD": 0.461, "thighZ": -0.021, "shinD": 0.563, "shinZ": -0.011, "footD": 0.219, "footZ": 0.013, "skirt": [[0.5, 0.236, 0.17, -0.009], [0.44, 0.229, 0.191, -0.015], [0.38, 0.251, 0.212, -0.017], [0.3, 0.282, 0.238, -0.021], [0.22, 0.321, 0.276, -0.025], [0.14, 0.093, 0.047, -0.042], [0.08, 0.081, 0.051, -0.03], [0.035, 0.104, 0.117, 0.017]]}, "mz_kid_green3": {"cw": 256, "cellH": 512, "ppm": 263.44, "cx": 126.5, "cz": 128.0, "top": [17, 17, 20], "bot": [507, 506, 507], "cx2": 127.5, "headW": 0.258, "neckW": 0.148, "shW": 0.372, "armX": 0.225, "armW": 0.074, "torsoW": 0.349, "handF": 0.42, "hipW": 0.505, "legX": 0.102, "legW": 0.18, "kneeW": 0.104, "ankleW": 0.084, "headD": 0.292, "headZ": -0.025, "neckD": 0.205, "neckZ": 0.004, "chestD": 0.254, "chestZ": -0.025, "waistD": 0.258, "waistZ": 0.011, "hipD": 0.239, "hipZ": -0.009, "thighD": 0.201, "thighZ": -0.021, "shinD": 0.102, "shinZ": -0.055, "footD": 0.288, "footZ": 0.027}, "mz_kid_green4": {"cw": 256, "cellH": 512, "ppm": 263.98, "cx": 126.5, "cz": 127.5, "top": [16, 18, 19], "bot": [507, 507, 507], "cx2": 127.5, "headW": 0.261, "neckW": 0.144, "shW": 0.394, "armX": 0.227, "armW": 0.068, "torsoW": 0.364, "handF": 0.42, "hipW": 0.504, "legX": 0.104, "legW": 0.178, "kneeW": 0.106, "ankleW": 0.081, "headD": 0.288, "headZ": -0.025, "neckD": 0.201, "neckZ": -0.004, "chestD": 0.261, "chestZ": -0.03, "waistD": 0.258, "waistZ": 0.006, "hipD": 0.239, "hipZ": -0.011, "thighD": 0.208, "thighZ": -0.027, "shinD": 0.106, "shinZ": -0.059, "footD": 0.292, "footZ": 0.023}, "mz_armor": {"cw": 256, "cellH": 512, "ppm": 261.29, "cx": 128.0, "cz": 130.5, "top": [20, 20, 22], "bot": [506, 506, 506], "cx2": 128.0, "headW": 0.199, "neckW": 0.214, "shW": 0.616, "armX": 0.33, "armW": 0.044, "torsoW": 0.237, "handF": 0.42, "hipW": 0.704, "legX": 0.145, "legW": 0.153, "kneeW": 0.149, "ankleW": 0.124, "headD": 0.237, "headZ": 0.017, "neckD": 0.26, "neckZ": -0.006, "chestD": 0.352, "chestZ": -0.006, "waistD": 0.306, "waistZ": -0.002, "hipD": 0.291, "hipZ": -0.013, "thighD": 0.214, "thighZ": 0.01, "shinD": 0.145, "shinZ": -0.036, "footD": 0.348, "footZ": 0.034}, "mz_mary": {"cw": 256, "cellH": 512, "ppm": 258.6, "cx": 124.0, "cz": 108.0, "top": [25, 18, 13], "bot": [506, 506, 506], "cx2": 127.0, "headW": 0.209, "neckW": 0.259, "shW": 0.394, "armX": 0.2, "hipW": 0.433, "legX": 0.11, "legW": 0.255, "kneeW": 0.534, "ankleW": 0.576, "headD": 0.228, "headZ": 0.033, "neckD": 0.24, "neckZ": 0.004, "chestD": 0.294, "chestZ": -0.012, "waistD": 0.29, "waistZ": 0.017, "hipD": 0.356, "hipZ": 0.008, "thighD": 0.418, "thighZ": 0.008, "shinD": 0.491, "shinZ": -0.01, "footD": 0.406, "footZ": -0.099, "skirt": [[0.5, 0.226, 0.16, 0.014], [0.44, 0.217, 0.178, 0.008], [0.38, 0.232, 0.195, 0.006], [0.3, 0.255, 0.218, 0.002], [0.22, 0.267, 0.23, -0.006], [0.14, 0.278, 0.259, -0.023], [0.08, 0.288, 0.298, -0.081], [0.035, 0.305, 0.29, -0.073]], "torsoW": 0.3}, "mz_lord_v2": {"cw": 256, "cellH": 512, "ppm": 261.29, "cx": 127.0, "cz": 122.5, "top": [20, 23, 24], "bot": [506, 506, 506], "cx2": 129.0, "headW": 0.23, "neckW": 0.272, "shW": 0.459, "armX": 0.24, "hipW": 0.452, "legX": 0.13, "legW": 0.241, "kneeW": 0.065, "ankleW": 0.098, "headD": 0.218, "headZ": -0.008, "neckD": 0.207, "neckZ": -0.063, "chestD": 0.276, "chestZ": -0.017, "waistD": 0.283, "waistZ": -0.013, "hipD": 0.287, "hipZ": -0.038, "thighD": 0.276, "thighZ": -0.067, "shinD": 0.134, "shinZ": -0.038, "footD": 0.268, "footZ": 0.033, "torsoW": 0.34}, "mz_lord_v3": {"cw": 256, "cellH": 512, "ppm": 261.83, "cx": 130.5, "cz": 113.5, "top": [19, 23, 24], "bot": [506, 506, 506], "cx2": 127.5, "headW": 0.218, "neckW": 0.286, "shW": 0.458, "armX": 0.24, "hipW": 0.454, "legX": 0.11, "legW": 0.269, "kneeW": 0.098, "ankleW": 0.094, "headD": 0.218, "headZ": 0.0, "neckD": 0.214, "neckZ": -0.063, "chestD": 0.264, "chestZ": -0.011, "waistD": 0.275, "waistZ": -0.013, "hipD": 0.283, "hipZ": -0.044, "thighD": 0.279, "thighZ": -0.073, "shinD": 0.286, "shinZ": -0.118, "footD": 0.302, "footZ": 0.011, "torsoW": 0.34}, "mz_victim_black_dress": {"cw": 256, "cellH": 512, "ppm": 264.52, "cx": 130.5, "cz": 135.5, "top": [15, 16, 13], "bot": [507, 506, 507], "cx2": 128.5, "headW": 0.181, "neckW": 0.091, "shW": 0.359, "armX": 0.164, "armW": 0.072, "torsoW": 0.212, "handF": 0.66, "hipW": 0.42, "legX": 0.11, "legW": 0.244, "kneeW": 0.525, "ankleW": 0.658, "headD": 0.208, "headZ": 0.019, "neckD": 0.102, "neckZ": 0.026, "chestD": 0.189, "chestZ": -0.006, "waistD": 0.284, "waistZ": 0.008, "hipD": 0.352, "hipZ": 0.015, "thighD": 0.401, "thighZ": 0.017, "shinD": 0.476, "shinZ": 0.021, "footD": 0.42, "footZ": 0.034, "skirt": [[0.5, 0.198, 0.161, 0.015], [0.44, 0.21, 0.176, 0.015], [0.38, 0.223, 0.187, 0.015], [0.3, 0.244, 0.204, 0.017], [0.22, 0.263, 0.227, 0.021], [0.14, 0.289, 0.246, 0.021], [0.08, 0.329, 0.274, 0.026], [0.035, 0.278, 0.265, 0.047]]}, "mz_victim_blonde_gown": {"cw": 256, "cellH": 512, "ppm": 262.37, "cx": 129.5, "cz": 143.0, "top": [18, 21, 13], "bot": [506, 507, 506], "cx2": 128.5, "headW": 0.198, "neckW": 0.095, "shW": 0.377, "armX": 0.178, "armW": 0.078, "torsoW": 0.24, "handF": 0.64, "hipW": 0.469, "legX": 0.11, "legW": 0.282, "kneeW": 0.629, "ankleW": 0.758, "headD": 0.236, "headZ": 0.008, "neckD": 0.111, "neckZ": 0.002, "chestD": 0.202, "chestZ": -0.017, "waistD": 0.328, "waistZ": 0.019, "hipD": 0.427, "hipZ": 0.034, "thighD": 0.48, "thighZ": 0.034, "shinD": 0.572, "shinZ": 0.042, "footD": 0.396, "footZ": 0.057, "skirt": [[0.5, 0.236, 0.189, 0.025], [0.44, 0.234, 0.213, 0.034], [0.38, 0.257, 0.221, 0.027], [0.3, 0.282, 0.25, 0.036], [0.22, 0.314, 0.273, 0.036], [0.14, 0.347, 0.299, 0.048], [0.08, 0.379, 0.332, 0.057], [0.035, 0.311, 0.274, 0.057]]}, "mz_victim_lace": {"cw": 256, "cellH": 512, "ppm": 263.98, "cx": 128.0, "cz": 122.0, "top": [15, 19, 19], "bot": [506, 507, 507], "cx2": 129.0, "headW": 0.22, "neckW": 0.083, "shW": 0.383, "armX": 0.171, "armW": 0.097, "torsoW": 0.197, "handF": 0.66, "hipW": 0.409, "legX": 0.11, "legW": 0.239, "kneeW": 0.511, "ankleW": 0.489, "headD": 0.239, "headZ": -0.025, "neckD": 0.091, "neckZ": -0.019, "chestD": 0.22, "chestZ": 0.0, "waistD": 0.28, "waistZ": -0.008, "hipD": 0.337, "hipZ": -0.013, "thighD": 0.39, "thighZ": -0.017, "shinD": 0.443, "shinZ": -0.017, "footD": 0.178, "footZ": 0.013, "skirt": [[0.5, 0.22, 0.155, -0.011], [0.44, 0.205, 0.169, -0.013], [0.38, 0.22, 0.182, -0.015], [0.3, 0.239, 0.199, -0.017], [0.22, 0.256, 0.214, -0.017], [0.14, 0.28, 0.235, -0.019], [0.08, 0.244, 0.235, -0.023], [0.035, 0.089, 0.098, 0.019]]}, "mz_victim_maid": {"cw": 256, "cellH": 512, "ppm": 262.9, "cx": 128.5, "cz": 121.5, "top": [17, 18, 20], "bot": [506, 507, 507], "cx2": 129.0, "headW": 0.202, "neckW": 0.099, "shW": 0.399, "armX": 0.179, "armW": 0.084, "torsoW": 0.217, "handF": 0.66, "hipW": 0.445, "legX": 0.11, "legW": 0.264, "kneeW": 0.582, "ankleW": 0.046, "headD": 0.228, "headZ": -0.013, "neckD": 0.099, "neckZ": -0.017, "chestD": 0.209, "chestZ": 0.008, "waistD": 0.312, "waistZ": -0.002, "hipD": 0.365, "hipZ": -0.002, "thighD": 0.43, "thighZ": -0.004, "shinD": 0.475, "shinZ": -0.019, "footD": 0.213, "footZ": 0.021, "skirt": [[0.5, 0.242, 0.173, -0.004], [0.44, 0.223, 0.183, -0.002], [0.38, 0.242, 0.2, -0.004], [0.3, 0.264, 0.221, -0.006], [0.22, 0.291, 0.243, -0.01], [0.14, 0.312, 0.251, -0.021], [0.08, 0.196, 0.188, -0.038], [0.035, 0.108, 0.114, 0.025]]}, "mz_victim_nightgown": {"cw": 256, "cellH": 512, "ppm": 262.9, "cx": 132.5, "cz": 136.5, "top": [18, 18, 15], "bot": [507, 506, 507], "cx2": 127.0, "headW": 0.205, "neckW": 0.114, "shW": 0.399, "armX": 0.17, "hipW": 0.437, "legX": 0.11, "legW": 0.245, "kneeW": 0.525, "ankleW": 0.628, "headD": 0.236, "headZ": 0.01, "neckD": 0.099, "neckZ": 0.01, "chestD": 0.262, "chestZ": 0.0, "waistD": 0.32, "waistZ": 0.002, "hipD": 0.361, "hipZ": 0.004, "thighD": 0.403, "thighZ": 0.006, "shinD": 0.46, "shinZ": 0.015, "footD": 0.38, "footZ": 0.002, "skirt": [[0.5, 0.243, 0.169, 0.004], [0.44, 0.219, 0.181, 0.004], [0.38, 0.232, 0.192, 0.004], [0.3, 0.245, 0.203, 0.008], [0.22, 0.262, 0.221, 0.013], [0.14, 0.287, 0.238, 0.011], [0.08, 0.314, 0.262, 0.021], [0.035, 0.306, 0.253, 0.042]], "torsoW": 0.22}});
+{const _skt=skTex;skTex=function(key){if(!key.startsWith('mz_'))return _skt(key);if(SKTEX[key])return SKTEX[key];
+  const t=mtex(key,{clamp:true});t.minFilter=THREE.LinearMipmapLinearFilter;t.magFilter=THREE.LinearFilter;return SKTEX[key]=t;};}
+const GUESTS=['mz_guest1','mz_guest2','mz_guest3','mz_guest4','mz_guest5','mz_guest6'],STAFF=['mz_staff1','mz_staff2','mz_staff3','mz_staff4'];
+const DECK={r:-1,w:-1,c:[],i:0};
+function mzKey(type){if(type)return ['','mz_runner','mz_brute','mz_stalker'][type];
+  const r=S?S.r:0,w=S?S.w:0;
+  if(DECK.r!==r||DECK.w!==w){let sd=(r*7919+w*104729)%2147483647||1;const R=()=>(sd=(sd*16807)%2147483647)/2147483647;
+    const n=Math.max(8,S?waveInfo(Math.max(1,w),S.n||1,S.d||1).count:12),c=[];for(const k of STAFF){c.push(k);if(R()<.5)c.push(k);}
+    while(c.length<n)c.push(GUESTS[Math.floor(R()*GUESTS.length)]);
+    for(let i=c.length-1;i>0;i--){const j=Math.floor(R()*(i+1));[c[i],c[j]]=[c[j],c[i]];}Object.assign(DECK,{r,w,c,i:0});}
+  return DECK.i<DECK.c.length?DECK.c[DECK.i++]:GUESTS[(DECK.i++)%GUESTS.length];}
+// on the servants' stairs the way off is to the side at the top: a zombie climbs to the top step before it turns, or it steps off into the well
+{const _ft=flowTarget;flowTarget=function(x,y,z){const r=_ft(x,y,z);if(!r||MAPCUR!=='m')return r;const cx=Math.floor(x),cz=Math.floor(z),i=idx(cx,cz);
+  if(stA[i]<0)return r;const up=LEVELS[stBase[i]+1];if(!up||y>up.y-.25)return r;const along=stA[i]===1;
+  if(along?Math.floor(r[0])===cx:Math.floor(r[1])===cz)return r;const end=stStart[i]+stSign[i]*stLen[i]-stSign[i]*.05;return along?[cx+.5,end]:[end,cz+.5];};}
+{const _zm=zMesh;zMesh=function(type,drop,smart){if(MAPCUR==='m'&&OPT.zskin!==false&&type>=0&&type<=3)return skinZombie(type,drop,smart,mzKey(type));return _zm(type,drop,smart);};}
 // the map's name as the run opens
 {const _er=enterRun;enterRun=function(s){_er(s);if(!M.preview)setTimeout(()=>toast(MAPCUR==='m'?'The Mansion':'The Cul-de-sac',''),400);};}
 // on the mansion's drive you start facing the house
