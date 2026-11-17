@@ -419,6 +419,7 @@ html.firing .rlock{opacity:.35;pointer-events:none}
       <label for="oXc">Crosshair colour</label><select id="oXc"><option value="w">White</option><option value="g">Green</option><option value="y">Yellow</option><option value="c">Cyan</option><option value="r">Red</option></select>
       <label for="oZspr">Realistic 2D zombies (test)</label><input id="oZspr" type="checkbox">
       <label for="oPost">Film look on High (glow, contact shadows, grade)</label><input id="oPost" type="checkbox">
+      <label for="oAutoL">Auto lights (fewer lamps when the game slows, more when it's smooth)</label><input id="oAutoL" type="checkbox">
       <label for="oBloom">Bloom (glow around lights)</label><select id="oBloom"><option value="off">Off</option><option value="low">Low</option><option value="med">Medium</option><option value="high">High</option></select>
       <label for="oZskin">3D zombies with skeletons (turn off if a slow phone stutters)</label><input id="oZskin" type="checkbox">
       <label for="oBob">Weapon bob while moving</label><input id="oBob" type="checkbox">
@@ -3164,11 +3165,11 @@ function applyLook(){document.documentElement.style.setProperty('--xh',XH[OPT.xc
 function renderRatio(){const dpr=window.devicePixelRatio||1,auto=OPT.gfx==='low'?1:Math.min(dpr,touchDev?1.25:OPT.gfx==='med'?1:1.5);
   if(!OPT.res||OPT.res==='auto')return auto;return Math.max(.3,Math.min(4,(+OPT.res)/Math.max(1,innerHeight)));}
 (function bindOpt(){
-  const DEF2={sfx:100,vvol:100,bright:100,hud:100,res:'auto',gfx:OPT.low?'low':'med',fpsCap:0,xc:'w',bob:true,fpsShow:false,bgmute:false,fads:'off',tsens:5,zsprite:true,bloom:'med'};
+  const DEF2={sfx:100,vvol:100,bright:100,hud:100,res:'auto',gfx:OPT.low?'low':'med',fpsCap:0,xc:'w',bob:true,fpsShow:false,bgmute:false,fads:'off',tsens:5,zsprite:true,bloom:'med',autoL:false};
   for(const k in DEF2)if(OPT[k]===undefined)OPT[k]=DEF2[k];
   if(OPT.mates===undefined)OPT.mates=true;if(OPT.post===undefined)OPT.post=true;if(OPT.zskin===undefined)OPT.zskin=true;OPT.low=OPT.gfx==='low';
   const ranges=[['oVol','vol'],['oSfx','sfx'],['oVvol','vvol'],['oSens','sens'],['oPad','pad'],['oAds','ads'],['oFov','fov'],['oTsens','tsens'],['oBright','bright'],['oHud','hud']];
-  const checks=[['oZspr','zsprite'],['oTog','tog'],['oInv','inv'],['oAim','assist'],['oPtt','ptt'],['oMates','mates'],['oBob','bob'],['oFpsShow','fpsShow'],['oBgMute','bgmute'],['oPost','post'],['oZskin','zskin']];
+  const checks=[['oZspr','zsprite'],['oTog','tog'],['oInv','inv'],['oAim','assist'],['oPtt','ptt'],['oMates','mates'],['oBob','bob'],['oFpsShow','fpsShow'],['oBgMute','bgmute'],['oPost','post'],['oZskin','zskin'],['oAutoL','autoL']];
   const selects=[['oRes','res'],['oGfx','gfx'],['oFps','fpsCap'],['oXc','xc'],['oFads','fads'],['oBloom','bloom']];
   const sync=()=>{for(const [id,k] of ranges){$(id).value=OPT[k];$(id+'V').textContent=OPT[k]+(['bright','hud','sfx','vvol','vol'].includes(k)?'%':'');}
     for(const [id,k] of checks)$(id).checked=!!OPT[k];for(const [id,k] of selects)$(id).value=String(OPT[k]);applyLook();};
@@ -7753,10 +7754,17 @@ function build(G){
     const ok=()=>{for(let x=Math.floor(cx-w/2);x<=Math.floor(cx+w/2-.01);x++)for(let z=Math.floor(cz-d/2);z<=Math.floor(cz+d/2-.01);z++){const i=idx(x,z);if(stA[i]>=0||L.solid[i]||(L.floor&&L.floor[i]!==1))return false;}return true;};
     while(!ok()&&(w>1.4||d>1.4)){if(w>=d)w-=.5;else d-=.5;}
     if(!ok())continue;const m=flat(new THREE.PlaneGeometry(w,d),mmat('rug_persian',0xc8b8a8,{clamp:true}),cx,LVY[k]+.012,cz);m.receiveShadow=true;}
+  // nothing grows across a ground-floor window or door
+  const nearOpening=(x,z)=>(M.wins||[]).some(w=>w.k===1&&Math.hypot(w.x+.5-x,w.z+.5-z)<2.2)||(M.doorCells||[]).some(d=>d.k===1&&d.cells.some(([cx,cz])=>Math.hypot(cx+.5-x,cz+.5-z)<2.2));
   // ivy: climbing the back and the sides, never the front
   {const ivyM=mmat('ivy',0xb0b8a8,{alpha:true,side:1}),sp=[[HX0+3,HZ0-.03,'n',7,5.5],[HX0+14,HZ0-.03,'n',5,3.6],[HX1-7,HZ0-.03,'n',8,6.4],[HX0-.03,HZ0+4,'w',6,4.4],[HX0-.03,HZ1-9,'w',5,3],[HX1+.03,HZ0+6,'e',9,6],[HX1+.03,HZ1-6,'e',4,2.6]];
-    for(const [x,z,f,w,h] of sp){const m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),ivyM);m.position.set(f==='n'?x+w/2:x,h/2,f==='n'?z:z+w/2);m.rotation.y=f==='n'?Math.PI:f==='w'?-Math.PI/2:Math.PI/2;
-      m.geometry.attributes.uv.array.forEach((v,i,a)=>{a[i]=v*(i%2?h:w)/3;});scene.add(m);}}
+    // never across a door or a window: each patch is cut where an opening is
+    const cuts=f=>{const o=[];for(const d of M.doorCells||[])for(const [cx,cz] of d.cells){if(f==='n'&&cz<=HZ0&&cz>=HZ0-1)o.push(cx);if(f==='w'&&cx<=HX0&&cx>=HX0-1)o.push(cz);if(f==='e'&&cx>=HX1-1&&cx<=HX1)o.push(cz);}
+      for(const w of M.wins||[])if(w.f===f)o.push(f==='n'?w.x:w.z);return o;};
+    for(const [x,z,f,w,h] of sp){const a0=f==='n'?x:z,a1=a0+w;let parts=[[a0,a1]];
+      for(const c of cuts(f)){const lo=c-.15,hi=c+1.15;parts=parts.flatMap(([p,q])=>hi<=p||lo>=q?[[p,q]]:[[p,Math.min(q,lo)],[Math.max(p,hi),q]].filter(([u,v])=>v-u>.5));}
+      for(const [p,q] of parts){const ww=q-p,m=new THREE.Mesh(new THREE.PlaneGeometry(ww,h),ivyM);m.position.set(f==='n'?p+ww/2:x,h/2,f==='n'?z:p+ww/2);m.rotation.y=f==='n'?Math.PI:f==='w'?-Math.PI/2:Math.PI/2;
+        m.geometry.attributes.uv.array.forEach((v,i,a)=>{a[i]=v*(i%2?h:ww)/3;});scene.add(m);}}}
   // roof: the flat top of the mansard in slate, the cresting, brick chimneys
   const W=HX1-HX0,D=HZ1-HZ0,cx=(HX0+HX1)/2,cz=(HZ0+HZ1)/2;
   {const rt=new THREE.Mesh(new THREE.BoxGeometry(W+.6,.24,D+.6),mmat('roof_slate_fishscale',0x7a7e86));rt.geometry.attributes.uv.array.forEach((v,i,a)=>{a[i]=v*8;});rt.position.set(cx,ROOF+.12,cz);rt.castShadow=true;scene.add(rt);}
@@ -7805,7 +7813,7 @@ function build(G){
     g.position.set(x,0,z);g.rotation.y=ry;scene.add(g);return g;};
   [[6,4],[64,5],[8,46],[62,45],[10,33],[58,20],[24,44],[46,46]].forEach(([x,z],i)=>crossed(i%2?'tree_hollow':'tree_twisted',(i>>1)%4,x+O+.5,z+O+.5,6.5+R()*2,R()*6,true));
   for(let i=0;i<34;i++){const side=i%4,t=R();const x=side<2?HX0+1+t*(HX1-HX0-2):side===2?HX0-.8:HX1+.8,z=side===0?HZ0-.8:side===1?HZ1+.8:HZ0+1+t*(HZ1-HZ0-2);
-    if(side===1&&x>33&&x<44)continue;if(Math.abs(x-27)<2&&side===0)continue;if(side===2&&Math.abs(z-29)<2.5)continue;crossed('bush_dead',i%4,x,z,1.1+R()*.7,R()*6);}
+    if(side===1&&x>33&&x<44)continue;if(Math.abs(x-27)<2&&side===0)continue;if(side===2&&Math.abs(z-29)<2.5)continue;if(nearOpening(x,z))continue;crossed('bush_dead',i%4,x,z,1.1+R()*.7,R()*6);}
   for(let i=0;i<28;i++){const x=O+3+R()*64,z=O+12+R()*34;if(x>HX0-3&&x<HX1+3&&z>HZ0-3&&z<HZ1+3)continue;if(Math.abs(x-38.5)<4&&z>40)continue;crossed('bush_dead',i%4,x,z,.8+R()*.9,R()*6);}
   for(const x of [13,19,25,45,51,57])for(const y of [3.2,6])crossed('planter',(x+y|0)%4,x+O,y+O+.9,1.0,0);
 }
@@ -7960,7 +7968,7 @@ function winList(L){const out=[];
     for(let x=HX0+2;x<HX1-1;x+=3)for(const [z,f] of [[HZ0,'n'],[HZ1-1,'s']]){if(k<3&&f==='s'&&x>=34&&x<=42)continue;if(k===1&&f==='n'&&x>=34&&x<=42)continue;if(!L[k].solid[idx(x,z)]||sh(x,z))continue;out.push({k,x,z,f});}
     for(let z=HZ0+2;z<HZ1-1;z+=3)for(const [x,f] of [[HX0,'w'],[HX1-1,'e']]){if(!L[k].solid[idx(x,z)]||sh(x,z))continue;out.push({k,x,z,f});}}
   // inside, the space under a window and its curtains stays clear of furniture
-  for(const w of out){const s=.05,dp=w.k<3?.6:.45;let a; // the window itself and the space in front of it: firm, nothing stands or hangs there
+  for(const w of out){const s=.05,dp=w.k<3?1.25:1.35;let a; // the window itself and the space in front of it: firm, nothing stands or hangs there
     if(w.f==='n')a=[w.x-s,HZ0+1,w.x+1+s,HZ0+1+dp];else if(w.f==='s')a=[w.x-s,HZ1-1-dp,w.x+1+s,HZ1-1];else if(w.f==='w')a=[HX0+1,w.z-s,HX0+1+dp,w.z+1+s];else a=[HX1-1-dp,w.z-s,HX1-1,w.z+1+s];
     M.occ.push({k:w.k,a});}
   return out;}
@@ -8081,7 +8089,8 @@ function buildGlow(){const g=new THREE.BufferGeometry();g.setAttribute('position
   const p=new THREE.Points(g,m);p.onBeforeRender=()=>{m.uniforms.k.value=haloK()/.8;};p.frustumCulled=false;p.renderOrder=5;scene.add(p);GL.pts=p;}
 // real lights: a few that follow the nearest lamps on your floor, fading over as you move (High 10, Medium 6, Low 4)
 const RIG={L:[],n:0};
-function buildRig(){const n=OPT.gfx==='high'?6:OPT.gfx==='med'?4:2;if(RIG.n===n)return;for(const l of RIG.L)scene.remove(l.l);RIG.L=[];RIG.n=n;
+// the rig hands its lights to the light slots (30-perf), which keep only what you can see
+function buildRig(){const n=12;if(RIG.n===n)return;for(const l of RIG.L)scene.remove(l.l);RIG.L=[];RIG.n=n;
   for(let i=0;i<n;i++){const l=new THREE.PointLight(0xffc080,0,6,2);scene.add(l);RIG.L.push({l,s:null,f:0});}
   scene.traverse(o=>{if(o.material)(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.needsUpdate=true);});}
 function flick(s,t){if(s.type==='fire')return .72+.2*Math.sin(t*17+s.ph)*Math.sin(t*6.3+s.ph*2)+.08*Math.sin(t*41);if(s.type==='oil')return .86+.07*Math.sin(t*9.1+s.ph)+.05*Math.sin(t*23.7+s.ph*2)+.02*Math.sin(t*41+s.ph);
@@ -9267,12 +9276,16 @@ function whFloors(){
   const gt=texOf('grass').clone();gt.needsUpdate=true;gt.wrapS=gt.wrapT=THREE.RepeatWrapping;gt.repeat.set(36,24);const gm=lam(0x6a7a4c,{map:gt});const g=new THREE.Mesh(new THREE.PlaneGeometry(220,140),gm);g.rotation.x=-Math.PI/2;g.position.set(40,-.01,81);g.receiveShadow=true;scene.add(g);}
 // the catwalks: steel grating, a frame, uprights to the floor, railings
 function whCatwalks(){const grate=mmat('wh_metal_panels',0x6a6c6e),bar=lam(0x4a4c4e),yel=lam(0xb08a20);
+  const tall=(x,z)=>{const w=WH.walls.get(x+','+z);return !!w&&(!w.iv||w.iv.some(v=>v[1]>WLY[1]-.1));};
+  const low=(x,z)=>{const w=WH.walls.get(x+','+z);return !w||(w.iv&&w.iv.every(v=>v[0]>.5));}; // open at floor level: no wall, or only the wall above a doorway
+  const gap=(x,z)=>low(x,z)&&((WH.walls.has((x-1)+','+z)&&WH.walls.has((x+1)+','+z))||(WH.walls.has(x+','+(z-1))&&WH.walls.has(x+','+(z+1))));
+  const nearGap=(x,z)=>{for(let dx=-1;dx<=1;dx++)for(let dz=-1;dz<=1;dz++)if(gap(x+dx,z+dz))return true;return false;};
   const ib=(m,list)=>{const im=new THREE.InstancedMesh(BOX,m,list.length),m4=new THREE.Matrix4(),q=new THREE.Quaternion(),v=new THREE.Vector3(),s=new THREE.Vector3();
     list.forEach((b,j)=>{m4.compose(v.set(b[0],b[1],b[2]),q,s.set(b[3],b[4],b[5]));im.setMatrixAt(j,m4);});im.castShadow=true;im.receiveShadow=true;scene.add(im);};
   const deck=[],posts=[],rails=[];const Y=WLY[1];
   for(let x=0;x<MW;x++)for(let z=0;z<MD;z++){const i=idx(x,z);if(!floor1[i])continue;
-    if(!(WH.walls.has(x+','+z)))deck.push([x+.5,Y-.05,z+.5,1,.1,1]);
-    if((x+z)%4===0&&!WH.walls.has(x+','+z)&&!(x>=36&&x<=43))posts.push([x+.5,Y/2,z+.5,.12,Y,.12]);
+    if(!tall(x,z))deck.push([x+.5,Y-.05,z+.5,1,.1,1]);
+    if((x+z)%4===0&&!tall(x,z)&&!WH.walls.has(x+','+z)&&!(x>=36&&x<=43)&&!nearGap(x,z)){let px=x+.5,pz=z+.5;for(const [dx,dz] of DIR4)if(tall(x+dx,z+dz)){px+=dx*.42;pz+=dz*.42;break;}posts.push([px,Y/2,pz,.12,Y,.12]);}
     for(const [dx,dz] of DIR4){const j=idx(x+dx,z+dz);if(kind1[j]!==K.RAIL)continue;const cx=x+.5+dx*.47,cz=z+.5+dz*.47,lx=dx?.05:1,lz=dx?1:.05;
       rails.push([cx,Y+1.05,cz,lx+.02,.05,lz+.02],[cx,Y+.55,cz,lx,.04,lz],[cx+(dx?0:.45),Y+.53,cz+(dx?.45:0),.05,1.05,.05]);}}
   // the bridge rests on two steel beams across the alley
@@ -9304,10 +9317,10 @@ function whProps(){const PI=Math.PI,R=(()=>{let s=17;return ()=>(s=(s*16807)%214
   for(const [a,b,c,d,ry,st] of WH.cont){const cx=(a+c+1)/2,cz=(b+d+1)/2,tp=['wh_corrugated_rust',0x8a7a6a];whBox('container',cx,cz,ry,0,1,tp);if(st)whBox('container',cx,cz,ry+PI,2.6,1,tp);}
   // floor clutter, solid where the grid says so
   whBox('forklift',29.5,24,PI,0,1);whBox('forklift',61.5,24,0,0,1);whBox('platform',31.5,30.5,0,0,1);
-  whBox('pallet_stack',33.5,20.5,0,0,1,['f_wh_pallet_stack_0',0x9a8a6a]);whBox('pallet_stack',34.4,20.5,0,0,.9,['f_wh_pallet_stack_0',0x9a8a6a]);
+  whBox('pallet_stack',28.5,26.5,0,0,1,['f_wh_pallet_stack_0',0x9a8a6a]);
   whBox('pallet_wrapped',46.5,19.5,0,0,1,['f_wh_crate_0',0xa08a68]);whBox('pallet_boxes',47.5,19.5,0,0,1,['f_wh_crate_0',0xa08a68]);
   whBox('pallet_jack',26,27,.3,0,1);whBox('pallet_jack',57,26,-1.2,0,1);whBox('flood_light',53,27,.6,0,1);whBox('flood_light',14,35,-2.4,0,1);
-  whBox('barrel',31.5,21.5,0,0,1);whBox('barrel',30.8,21.2,0,0,1);whBox('crate',47,30.5,.2,0,1,['f_wh_crate_0',0xa08a68]);whBox('crate',66.5,32,0,0,1,['f_wh_crate_0',0xa08a68]);
+  whBox('barrel',29.5,26.5,0,0,1);whBox('barrel',29.3,26.7,0,0,.95);whBox('crate',47,30.5,.2,0,1,['f_wh_crate_0',0xa08a68]);whBox('crate',66.5,32,0,0,1,['f_wh_crate_0',0xa08a68]);
   // the offices, the break rooms, the locker room
   const room=id=>WROOMS.find(r=>r.id===id).r;
   for(const id of ['officeA','officeB']){const [x0,z0,x1,z1]=room(id);whBox('office_desk',x0+2.2,z1-.2,PI,0,1);whBox('office_chair',x0+2.2,z1-1.2,PI+.4,0,1);
@@ -9368,13 +9381,13 @@ function whWater(){const g=new THREE.PlaneGeometry(260,120,160,80);g.rotateX(-Ma
   const w=new THREE.Mesh(g,m);w.position.set(40,-.75,-49);scene.add(w);WH.water=w;}
 // ---- lights: hanging lamps over the floors, the rooms' lights, the dock lights and the lot lights. A building's go out with its power.
 function whLamps(){const L=WH.lamps=[];const add=(x,y,z,b,col,I,R,kind)=>L.push({x,y,z,b,col,I,R,kind,lvl:1,ph:Math.random()*9});
-  for(const x of [14,20,27,32])for(const z of [21,26,31])add(x,7.2,z,1,0xffd9a0,11,18,'pend');
-  for(const x of [50,57,64])for(const z of [21,26,31])add(x,7.2,z,2,0xffd9a0,11,18,'pend');
+  for(const x of [14,20,27,32])for(const z of [21,26,31])add(x,7.2,z,1,0xffd9a0,6,18,'pend');
+  for(const x of [50,57,64])for(const z of [21,26,31])add(x,7.2,z,2,0xffd9a0,6,18,'pend');
   for(const R of WROOMS){const [x0,z0,x1,z1]=R.r;add((x0+x1+1)/2,WOFF-.15,(z0+z1+1)/2,R.b,0xf0f4ff,3,8,'room');}
   for(const d of WH.doors.filter(d=>d.kind==='dock'))add(d.x,4.4,16.6,0,0xffb060,6,12,'wall');
   for(const d of WH.doors.filter(d=>d.kind==='front'))add(d.x,3,45.4,0,0xffb060,6,12,'wall');
-  for(const [x,z] of [[12,47],[30,47],[52,47],[68,47]])add(x+.5,5.8,z+.5,0,0xffa040,15,22,'lot');
-  add(53,1.8,27,2,0xfff4e0,7,14,'flood');add(14,1.8,35,1,0xfff4e0,7,14,'flood');add(43,2.6,55,3,0xf0f4ff,2,7,'room');add(57.5,1.6,4.6,0,0xffb060,5,10,'wall');
+  for(const [x,z] of [[12,47],[30,47],[52,47],[68,47]])add(x+.5,5.8,z+.5,0,0xffa040,10,22,'lot');
+  add(53,1.8,27,2,0xfff4e0,4.8,14,'flood');add(14,1.8,35,1,0xfff4e0,4.8,14,'flood');add(43,2.6,55,3,0xf0f4ff,2,7,'room');add(57.5,1.6,4.6,0,0xffb060,5,10,'wall');
   // what you see of them: the hanging lamps' shades, wall lights, glow
   for(const l of L){if(l.kind==='pend'){card('f_wh_pendant_lamp_0',l.x,l.y+.3,l.z,0,.5,.6);card('f_wh_pendant_lamp_0',l.x,l.y+.3,l.z,Math.PI/2,.5,.6);
       const ch=new THREE.Mesh(BOX,lam(0x2a2a2a));ch.scale.set(.02,WROOF-l.y-.6,.02);ch.position.set(l.x,(WROOF+l.y+.6)/2,l.z);scene.add(ch);}
@@ -9387,12 +9400,13 @@ function whLamps(){const L=WH.lamps=[];const add=(x,y,z,b,col,I,R,kind)=>L.push(
     fragmentShader:'uniform float k;varying vec3 vc;void main(){float d=length(gl_PointCoord-.5)*2.;float a=pow(max(0.,1.-d),2.6);gl_FragColor=vec4(vc*a*k,1.);}'});
   WH.glow=new THREE.Points(g,m);WH.glow.frustumCulled=false;scene.add(WH.glow);}
 const WRIG={L:[],n:0,t:0};
-function whRig(){const n=OPT.gfx==='high'?6:OPT.gfx==='med'?4:2;if(WRIG.n===n)return;for(const l of WRIG.L)scene.remove(l);WRIG.L=[];
+// the rig hands its lights to the light slots (30-perf), which keep only the ones you can see
+function whRig(){const n=12;if(WRIG.n===n)return;for(const l of WRIG.L)scene.remove(l);WRIG.L=[];
   for(let i=0;i<n;i++){const l=new THREE.PointLight(0xffd0a0,0,16,2);scene.add(l);WRIG.L.push(l);}WRIG.n=n;}
 function whLightTick(dt){if(MAPCUR!=='w'||!WH.lamps.length)return;whRig();const t=performance.now()/1000,cp=camera.position,bo=(S&&S.bo)||{};
   WATER.u.t.value=t;WATER.u.storm.value=S&&S.sm?1:0;
   const col=WH.glow.geometry.attributes.col;
-  WH.lamps.forEach((l,j)=>{const off=l.b&&bo[l.b]>0;let goal=off?0:1;if(l.kind==='lot'||l.kind==='wall')goal*=.85+.15*Math.sin(t*1.3+l.ph)*Math.sin(t*7.1+l.ph); // old sodium buzz
+  WH.lamps.forEach((l,j)=>{const off=(l.b&&bo[l.b]>0)||l.dead;let goal=off?0:1;if(l.kind==='lot'||l.kind==='wall')goal*=.85+.15*Math.sin(t*1.3+l.ph)*Math.sin(t*7.1+l.ph); // old sodium buzz
     if(l.kind==='pend'&&!off&&Math.sin(t*.7+l.ph*3)>.985)goal*=.2;l.lvl+=(goal-l.lvl)*Math.min(1,dt*(off?12:3));
     const c=new THREE.Color(l.col).multiplyScalar(l.lvl);col.array[j*3]=c.r;col.array[j*3+1]=c.g;col.array[j*3+2]=c.b;});
   col.needsUpdate=true;WH.glow.material.uniforms.k.value=.6*haloK();
@@ -9522,7 +9536,7 @@ function weakGrid(down){if(down&&!WEAKG){WEAKG=[];for(let z=WEAK.z0;z<=WEAK.z1;z
   else if(!down&&WEAKG){for(const [i,s_,k] of WEAKG){solid0[i]=s_;kind0[i]=k;}WEAKG=null;if(WH.weakM){WH.weakM.visible=true;WH.weakD.visible=false;}for(const h of WH.lockerHole||[])cardShow(h,true);}}
 // ---- wave 4: the vampires
 function perchSpots(){if(WH.perch)return WH.perch;const P_=[];
-  for(let x=0;x<MW;x++)for(let z=0;z<MD;z++){const i=idx(x,z);if(floor1[i]&&!WH.walls.has(x+','+z)&&(x+z)%2===0)P_.push([x+.5,WLY[1],z+.5]);}
+  for(let x=0;x<MW;x++)for(let z=0;z<MD;z++){const i=idx(x,z);if(floor1[i]&&!(WH.walls.has(x+','+z)&&WH.walls.get(x+','+z).iv.some(v=>v[1]>WLY[1]-.1))&&(x+z)%2===0)P_.push([x+.5,WLY[1],z+.5]);}
   for(const a of WH.racks)for(let z=21;z<=31;z+=3)P_.push([a+1,3.4,z+.5]);
   for(const [a,b,c,d,ry,st] of WH.cont)P_.push([(a+c+1)/2,st?5.2:2.6,(b+d+1)/2]);return WH.perch=P_;}
 function leap(z,x,y,zz,T){z.lp={x0:z.x,y0:z.y,z0:z.z,x1:x,y1:y,z1:zz,t:0,T:T||(.55+Math.hypot(x-z.x,zz-z.z)*.035)};}
@@ -9925,7 +9939,7 @@ setTimeout(()=>{if(window.__dbg)window.__VT={VT,KEYC,M,lampAct,vtNear,sav:simApp
    screen) for good. A full set gives a small lasting edge: tapes, faster reloads; diary, one more grenade; manifests,
    every run starts with a little armour. All three ducks: a quack on every headshot (switch it in the Journal).
    Trophies: the first time you kill a boss, it leaves its trophy where it fell (walk over it). The wendigo leaves its
-   antlered skull, the Lord his signet ring, the werewolf a claw, the vampires a silver crucifix. All four: a gold
+   antlered skull, the Lord his signet ring, the werewolf a claw, the vampires a silver crucifix, the changeling the ribbon it wore as a child. All five: a gold
    finish for your guns (switch it in the Journal).
    Easter eggs: a garden gnome that wanders the cul-de-sac between waves (shoot it); a telephone in house A that rings
    once a run; the dock bell at the end of the jetty (ring it 4, then 6, then 10 times); a coffin crate in warehouse B
@@ -9954,10 +9968,10 @@ const CSET={
   ['Manifest 4 · Guard booth log','Full moon. Dogs on the quay wouldn\'t stop howling until midnight. After midnight, they stopped all at once.'],
   ['Manifest 5 · Break room note','Who keeps letting that kid in? Nobody brought a kid. It follows you around, doesn\'t talk, and you feel tired after.'],
   ['Manifest 6 · Last entry','Do not open the long crate. Do not move the long crate. If the long crate is open, leave the docks and do not come back after dark.']]}};
-const TROPHY={5:['antler','Wendigo\'s skull','antler_skull'],8:['ring','The Lord\'s signet ring','signet_ring'],12:['claw','Werewolf claw','werewolf_claw'],9:['cross','Silver crucifix','crucifix'],10:['cross','Silver crucifix','crucifix'],11:['cross','Silver crucifix','crucifix']};
+const TROPHY={5:['antler','Wendigo\'s skull','antler_skull'],8:['ring','The Lord\'s signet ring','signet_ring'],12:['claw','Werewolf claw','werewolf_claw'],9:['cross','Silver crucifix','crucifix'],10:['cross','Silver crucifix','crucifix'],11:['cross','Silver crucifix','crucifix'],14:['ribbon','The changeling\'s ribbon',null]};
 const setDone=mp=>CSET[mp].items.every((_,i)=>JR.f[mp+i]);
 const allDucks=()=>['c','m','w'].every(m=>JR.f['duck'+m]);
-const allTrophies=()=>['antler','ring','claw','cross'].every(k=>JR.f['t_'+k]);
+const TKEYS=['antler','ring','claw','cross','ribbon'];const allTrophies=()=>TKEYS.every(k=>JR.f['t_'+k]);
 // ---- the lasting edges
 {const _sr=startReload;startReload=function(){_sr();if(setDone('c')&&P.reloadT>0&&P.reloadDur&&!P._rk){P.reloadT*=.9;P.reloadDur*=.9;}};}
 {const _sh=SFX.head;SFX.head=function(...a){if(JR.quack&&allDucks()){tone('sawtooth',620,320,.12,.16,0,1800);setTimeout(()=>tone('sawtooth',560,300,.1,.12,0,1600),90);return;}return _sh.apply(this,a);};}
@@ -9996,9 +10010,15 @@ function cxSetCheck(id){if(/^duck/.test(id)){if(allDucks())setTimeout(()=>toast(
 function cxRunStart(){if(setDone('w')&&P.alive)P.armor=Math.max(P.armor||0,25);}
 // ---- trophies: dropped (for you) where a boss falls, the first time
 const TRV=[];
+// the changeling's ribbon: a child's hair bow, faded red silk, two loops and two tails (built here, no picture needed)
+function ribbonModel(){const g=new THREE.Group(),m=new THREE.MeshLambertMaterial({color:0x7e2a32,emissive:0x1a0406,side:THREE.DoubleSide});
+  for(const s of [-1,1]){const lp=new THREE.Mesh(new THREE.TorusGeometry(.07,.015,8,18),m);lp.scale.set(1.25,.75,.45);lp.position.set(s*.085,.03,0);lp.rotation.z=s*.25;g.add(lp);
+    const tl=new THREE.Mesh(new THREE.PlaneGeometry(.045,.2),m);tl.position.set(s*.035,-.07,.01);tl.rotation.z=s*.32;g.add(tl);
+    const nk=new THREE.Mesh(new THREE.PlaneGeometry(.05,.03),m);nk.position.set(s*.042,-.17,.012);nk.rotation.z=s*.32+s*.6;g.add(nk);}
+  const knot=new THREE.Mesh(new THREE.SphereGeometry(.03,10,8),m);knot.scale.set(1,1.1,.7);knot.position.y=.03;g.add(knot);g.scale.setScalar(1.6);return g;}
 function trophyTick(dt){for(const id in CZ){const c=CZ[id],T=TROPHY[c.type];if(!T||!c.dying||c._tr)continue;c._tr=1;if(JR.f['t_'+T[0]]||TRV.some(q=>q.k===T[0]))continue;
-    const m=xBox(T[2],.35,.2,.45);m.position.set(c.x,(c.y||0)+.25,c.z);scene.add(m);const L=new THREE.PointLight(0xffe0a0,.8,3,2);L.position.set(c.x,(c.y||0)+.8,c.z);scene.add(L);
-    TRV.push({k:T[0],nm:T[1],m,L,x:c.x,y:c.y||0,z:c.z,mp:MAPCUR});}
+    const m=T[2]?xBox(T[2],.35,.2,.45):ribbonModel();m.position.set(c.x,(c.y||0)+.25,c.z);scene.add(m);const L=new THREE.PointLight(0xffe0a0,.8,3,2);L.position.set(c.x,(c.y||0)+.8,c.z);scene.add(L);
+    if(!T[2])m.position.y=(c.y||0)+.45;TRV.push({k:T[0],nm:T[1],m,L,x:c.x,y:c.y||0,z:c.z,mp:MAPCUR});}
   for(let i=TRV.length-1;i>=0;i--){const t=TRV[i];t.m.rotation.y+=dt*.8;t.m.visible=t.L.visible=t.mp===MAPCUR;
     if(t.mp===MAPCUR&&P.alive&&Math.abs(P.y-t.y)<1.5&&Math.hypot(P.x-t.x,P.z-t.z)<1.2){JR.f['t_'+t.k]=1;jSave();scene.remove(t.m);scene.remove(t.L);TRV.splice(i,1);
       toast('TROPHY',t.nm+' · on your shelf in the Journal');SFX.pickup&&SFX.pickup();if(allTrophies())setTimeout(()=>toast('EVERY TROPHY','Gold gun finish unlocked in the Journal'),2800);}}}
@@ -10070,7 +10090,7 @@ function journalOpen(){const d=document.createElement('div');d.style.cssText='po
   for(const mp of ['c','m','w']){const S_=CSET[mp];const n=S_.items.filter((_,i)=>JR.f[mp+i]).length;
     h+=sec(`${S_.title} · ${n}/${S_.items.length}${setDone(mp)?' · complete':''}`,S_.items.map((it,i)=>JR.f[mp+i]?`<p style="margin:6px 0"><b>${it[0]}</b><br>${it[1]}</p>`:`<p style="margin:6px 0;opacity:.45">${it[0].split(' · ')[0]} · not found yet</p>`).join(''));}
   h+=sec('Rubber ducks · '+['c','m','w'].filter(m=>JR.f['duck'+m]).length+'/3',['Cul-de-sac','Mansion','Docks'].map((nm,i)=>`<span style="margin-right:14px;${JR.f['duck'+'cmw'[i]]?'':'opacity:.4'}">${JR.f['duck'+'cmw'[i]]?'🦆':'·'} ${nm}</span>`).join('')+(allDucks()?`<p><label><input type="checkbox" id="jrQ" ${JR.quack?'checked':''}> Quack on headshots</label></p>`:''));
-  h+=sec('Trophies · '+['antler','ring','claw','cross'].filter(k=>JR.f['t_'+k]).length+'/4',[['antler','Wendigo\'s skull'],['ring','The Lord\'s signet ring'],['claw','Werewolf claw'],['cross','Silver crucifix']].map(([k,nm])=>`<span style="margin-right:14px;${JR.f['t_'+k]?'':'opacity:.4'}">${JR.f['t_'+k]?'★':'·'} ${nm}</span>`).join('')+(allTrophies()?`<p><label><input type="checkbox" id="jrG" ${JR.gold?'checked':''}> Gold gun finish</label></p>`:''));
+  h+=sec('Trophies · '+TKEYS.filter(k=>JR.f['t_'+k]).length+'/5',[['antler','Wendigo\'s skull'],['ring','The Lord\'s signet ring'],['claw','Werewolf claw'],['cross','Silver crucifix'],['ribbon','The changeling\'s ribbon']].map(([k,nm])=>`<span style="margin-right:14px;${JR.f['t_'+k]?'':'opacity:.4'}">${JR.f['t_'+k]?'★':'·'} ${nm}</span>`).join('')+(allTrophies()?`<p><label><input type="checkbox" id="jrG" ${JR.gold?'checked':''}> Gold gun finish</label></p>`:''));
   h+='</div>';d.innerHTML=h;document.body.appendChild(d);d.querySelector('#jrX').onclick=()=>d.remove();
   const q=d.querySelector('#jrQ');if(q)q.onchange=()=>{JR.quack=q.checked;jSave();};const g=d.querySelector('#jrG');if(g)g.onchange=()=>{JR.gold=g.checked;jSave();};}
 (function(){const o=document.getElementById('btnOptT');if(!o)return;const b=document.createElement('button');b.className='ghost';b.type='button';b.id='btnJrT';b.textContent='Journal';b.onclick=journalOpen;o.parentNode.insertBefore(b,o);})();
@@ -10082,25 +10102,33 @@ function vtPadPad(){if(!VT.kp){VT.kpPrev=null;return;}const gp=[...(navigator.ge
   let s=VT.kpSel;if(hit('u'))s=(s+9)%12;if(hit('d'))s=(s+3)%12;if(hit('l'))s=s%3?s-1:s+2;if(hit('r'))s=s%3===2?s-2:s+1;VT.kpSel=s;
   bt.forEach((e,i)=>e.style.outline=i===s?'3px solid #6aff8a':'none');
   if(hit('a'))bt[s].click();if(hit('x')){const ev=new KeyboardEvent('keydown',{key:'Escape'});window.dispatchEvent(ev);}}
-// ---- the cassette player: in house C's front room. Once the team has picked up a tape this run, anyone standing at the
-// player between waves can play it. One press plays it for everyone in the run.
-const TAPE={pos:null,mesh:null,seen:0,run:-1,ov:null};
-function tapeBuild(){if(TAPE.mesh||MAPCUR!=='c')return;let ps=null;for(let x=59;x<=68;x++)for(let z=25;z<=38;z++){const i=idx(x,z);if(bld[i]!==3||solid0[i]||stA[i]>=0)continue;const d=Math.hypot(x-68,z-25);if(!ps||d<ps[2])ps=[x+.5,z+.5,d];}
-  TAPE.pos=ps||[67.5,25.5];const t=new THREE.Mesh(new THREE.BoxGeometry(.5,.72,.45),new THREE.MeshLambertMaterial({color:0x3a3028}));t.position.set(TAPE.pos[0],.36,TAPE.pos[1]);scene.add(t);
-  const m=xBox('cassette_player',.2,.07,.3);m.position.set(TAPE.pos[0],.87,TAPE.pos[1]);m.rotation.y=Math.PI/2;scene.add(m);TAPE.mesh=m;TAPE.table=t;}
-const tapeHave=()=>CXV.items.some(I=>I.g&&CSET.c&&I.id[0]==='c'&&!/^duck/.test(I.id));
-function tapeNear(){if(MAPCUR!=='c'||!TAPE.pos||!P.alive||!S||(S.ph!=='b'&&S.ph!=='p')||TAPE.played)return false;return Math.abs(P.y)<1&&Math.hypot(P.x-TAPE.pos[0],P.z-TAPE.pos[1])<1.6;}
-// host: a play request from someone at the player, in a break, with the tape found
+// ---- the cassette player: a find of its own. Each run on the cul-de-sac it turns up somewhere at random; whoever picks
+// it up carries it for the team (and drops it where they fall). Once the team holds the player and a tape, whoever carries
+// the player can play the tape during a break between waves: once a run, fifteen seconds, for everyone.
+const TAPE={run:-1,ov:null,mesh:null};
+const tapeHave=()=>CXV.items.some(I=>I.g&&I.id[0]==='c'&&!/^duck/.test(I.id));
+// host: where the player lies, who carries it
+{const _hc=hostCx;hostCx=function(W){const had=W.cx&&W.cx.r===W.run;const r=_hc(W);if(!had&&(W.map||MAPCUR)==='c'){const cells=vtReach('c');let q=null;for(let t=0;t<12;t++){q=vtPick('c',cells,r.it[0].p);if(!W.vt||Math.hypot(q[0]-W.vt.paper[0],q[2]-W.vt.paper[2])>6)break;}W.cp={p:q,ks:0,kh:''};}else if(!had)W.cp=null;return r;};}
 function simApplyTape(W,key,lq){if(!lq||lq.r!==W.run||!Array.isArray(lq.q))return;const seen=W.rrS||(W.rrS={});
-  for(const a of lq.q){if(a[1]!=='rroll')continue;const n=a[0];if(n<=(seen[key]||0))continue;seen[key]=n;
-    if((W.ph==='b'||W.ph==='p')&&!W.rr&&W.cx&&W.cx.it.some(I=>I.g&&I.id[0]==='c'&&!/^duck/.test(I.id)))W.rr=1;}}
+  for(const a of lq.q){if(a[1]!=='rroll'&&a[1]!=='cppick')continue;const n=a[0];if(n<=(seen[key]||0))continue;seen[key]=n;const C=W.cp;if(!C)continue;
+    if(a[1]==='cppick'&&(C.ks===0||C.ks===2)){C.ks=1;C.kh=key;}
+    else if(a[1]==='rroll'&&W.ph==='b'&&!W.rr&&C.ks===1&&C.kh===key&&W.cx&&W.cx.it.some(I=>I.g&&I.id[0]==='c'&&!/^duck/.test(I.id)))W.rr=1;}}
 {const _sal9=simApplyLamp;simApplyLamp=function(W,key,lq){try{if(key===myKey()&&P.lq&&P.lq!==lq)simApplyTape(W,key,P.lq);simApplyTape(W,key,lq);}catch(e){}_sal9(W,key,lq);};}
-{const _pw10=packW;packW=function(W){const s=_pw10(W);if(W.rr)s.rr=1;return s;};}
-{const _aw10=adoptW;adoptW=function(S0,pr){const W=_aw10(S0,pr);if(S0&&S0.rr)W.rr=1;return W;};}
-function tapeSnap(s){if(!s)return;if(s.r!==TAPE.run){TAPE.run=s.r;TAPE.played=0;tapeClose();}
-  if(MAPCUR==='c')tapeBuild();if(TAPE.mesh)TAPE.mesh.visible=TAPE.table.visible=MAPCUR==='c';
+{const _ss8=simStep;simStep=function(W,dt,players){_ss8(W,dt,players);const C=W.cp;if(!C||C.ks!==1)return;const p=(players||[]).find(q=>q.key===C.kh);if(!p||!p.alive){C.ks=2;C.kh='';if(p)C.p=[p.x,groundAt(p.x,p.z,p.y+.5),p.z];}};}
+{const _pw10=packW;packW=function(W){const s=_pw10(W);if(W.rr)s.rr=1;if(W.cp){const r1=v=>Math.round(v*10);s.cp=[r1(W.cp.p[0]),r1(W.cp.p[1]),r1(W.cp.p[2]),W.cp.ks,W.cp.kh];}return s;};}
+{const _aw10=adoptW;adoptW=function(S0,pr){const W=_aw10(S0,pr);if(S0&&S0.rr)W.rr=1;if(S0&&S0.cp){const a=S0.cp;W.cp={p:[a[0]/10,a[1]/10,a[2]/10],ks:a[3],kh:a[4]};}return W;};}
+// what you see and hold
+function tapeSnap(s){if(!s)return;if(s.r!==TAPE.run){TAPE.run=s.r;TAPE.played=0;TAPE.had=0;tapeClose();}
+  const a=s.cp;TAPE.cp=a&&MAPCUR==='c'?{x:a[0]/10,y:a[1]/10,z:a[2]/10,ks:a[3],kh:a[4]}:null;
+  if(TAPE.cp&&!TAPE.mesh){TAPE.mesh=xBox('cassette_player',.2,.07,.3);scene.add(TAPE.mesh);}
+  if(TAPE.mesh){const C=TAPE.cp;TAPE.mesh.visible=!!C&&(C.ks===0||C.ks===2);if(C){TAPE.mesh.position.set(C.x,C.y+.15,C.z);TAPE.mesh.rotation.y=(C.x*3)%6;}}
+  const mine=!!(TAPE.cp&&TAPE.cp.ks===1&&TAPE.cp.kh===myKey());
+  if(TAPE.cp&&TAPE.cp.ks===1&&!TAPE.had){TAPE.had=1;JR.f.cplayer=1;jSave();toast('',mine?'A cassette player, batteries still in · find a tape, then play it between waves':'Someone found a cassette player');}
   if(s.rr&&!TAPE.played){TAPE.played=1;tapeOpen();}
   if(TAPE.ov&&s.ph==='w')tapeClose();}
+const tapeMine=()=>!!(TAPE.cp&&TAPE.cp.ks===1&&TAPE.cp.kh===myKey());
+const tapeCanPlay=()=>MAPCUR==='c'&&P.alive&&S&&S.ph==='b'&&!TAPE.played&&tapeMine()&&tapeHave();
+function tapeNearPlayer(){const C=TAPE.cp;return !!(C&&(C.ks===0||C.ks===2)&&P.alive&&Math.abs(P.y-C.y)<1.5&&Math.hypot(P.x-C.x,P.z-C.z)<1.3);}
 // everyone's screen: the video, embedded, over the game
 function tapeOpen(){tapeClose();SFX.pickup&&SFX.pickup();const d=document.createElement('div');d.style.cssText='position:fixed;inset:0;z-index:65;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.7);gap:10px';
   const f=document.createElement('iframe');f.src='https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&rel=0';f.allow='autoplay; encrypted-media; picture-in-picture';f.setAttribute('allowfullscreen','');
@@ -10108,26 +10136,57 @@ function tapeOpen(){tapeClose();SFX.pickup&&SFX.pickup();const d=document.create
   const r=document.createElement('div');r.style.cssText='display:flex;gap:10px;font:600 15px system-ui,sans-serif';
   const a=document.createElement('a');a.href='https://music.youtube.com/watch?v=dQw4w9WgXcQ';a.target='_blank';a.rel='noopener';a.textContent='Not playing? Open it';a.style.cssText='color:#cfe;padding:8px 12px';
   const b=document.createElement('button');b.textContent='Close';b.style.cssText='padding:8px 16px;font:600 15px system-ui;background:#2c3136;color:#fff;border:1px solid #555;border-radius:6px';b.onclick=tapeClose;
-  r.append(a,b);d.append(f,r);document.body.appendChild(d);TAPE.ov=d;}
-function tapeClose(){if(TAPE.ov){TAPE.ov.remove();TAPE.ov=null;}}
+  r.append(a,b);d.append(f,r);document.body.appendChild(d);TAPE.ov=d;TAPE.tm=setTimeout(tapeClose,15000);} // fifteen seconds of it, then back to the game
+function tapeClose(){clearTimeout(TAPE.tm);if(TAPE.ov){TAPE.ov.remove();TAPE.ov=null;}}
 window.addEventListener('keydown',e=>{if(TAPE.ov&&e.key==='Escape'){tapeClose();e.stopPropagation();}},true);
 {const _os11=onSnapshot;onSnapshot=function(s){const r=_os11(s);try{tapeSnap(s);}catch(e){if(!TAPE.err){TAPE.err=1;console.warn("tape",e);}}return r;};}
-{const _up11=usePress;usePress=function(){if(inGame()&&tapeNear()){if(tapeHave()){lampAct('rroll');vmReach&&vmReach();}else toast('','A cassette player. No tape in it');return;}return _up11();};}
-{const _dp11=darkPrompt;darkPrompt=function(verb,t){const d=_dp11(verb,t);if(d||!inGame()||!tapeNear())return d;const use=lastInput==='pad'?'('+padBtn('use')+')':isTouch?'USE':'[F]';
-  return tapeHave()?[use+' Play the tape',false]:['A cassette player · find a tape first',true];};}
-setTimeout(()=>{if(window.__dbg)window.__EX={EGG,CXV,JR,journalOpen,eggNear,TAPE};},0);
+{const _up11=usePress;usePress=function(){if(inGame()&&P.alive&&!VT.kp){
+    if(tapeNearPlayer()){lampAct('cppick');vmReach&&vmReach();return;}
+    if(tapeCanPlay()&&!eggNear()&&!vtNear()){lampAct('rroll');vmReach&&vmReach();return;}}
+  return _up11();};}
+{const _dp11=darkPrompt;darkPrompt=function(verb,t){const use=lastInput==='pad'?'('+padBtn('use')+')':isTouch?'USE':'[F]';if(inGame()&&P.alive&&!VT.kp&&tapeNearPlayer())return [use+' Pick up the cassette player',false]; // what F does here comes first
+  const d=_dp11(verb,t);if(d||!inGame()||!P.alive)return d;
+  if(tapeCanPlay())return [use+' Play the tape',false];return d;};}
 // ---- down the sights: once you're fully aimed, the gun becomes a photographed sight picture, front sight on the crosshair
 const SIGHT={meta:{"sawn":{"w":470,"h":570,"ax":234,"ay":18},"glock":{"w":436,"h":421,"ax":216,"ay":13},"ak":{"w":460,"h":476,"ax":229,"ay":25},"plasma":{"w":701,"h":1000,"ax":344.9,"ay":12.3}},img:{},el:null};
 function sightTick(){if(!SIGHT.el){const d=document.createElement('div');d.style.cssText='position:fixed;inset:0;pointer-events:none;z-index:2;overflow:hidden;opacity:0';
     for(const k in SIGHT.meta){const im=new Image();im.src=XART+'sight_'+k+'.webp';im.style.cssText='position:absolute;display:none;max-width:none';d.appendChild(im);SIGHT.img[k]=im;}document.body.appendChild(d);SIGHT.el=d;}
   const w=P.cur,M_=SIGHT.meta[w],im=SIGHT.img[w],a=P.ads||0;
   const on=M_&&im&&im.complete&&im.naturalWidth>0&&inGame()&&P.alive&&!thermalOn&&!(P.reloadT>0)&&!VM.swap&&!VM.act&&a>.7&&!(P.weapons[w]&&P.weapons[w].opt);
-  const k=on?Math.min(1,(a-.7)/.25):0;SIGHT.el.style.opacity=k.toFixed(3);
-  for(const n in SIGHT.img)SIGHT.img[n].style.display=n===w&&k>0?'block':'none';
+  const k=on?Math.min(1,(a-.7)/.25):0;if(k===0&&SIGHT.k===0)return; // nothing to show and nothing showing: no page work at all this frame
+  SIGHT.k=k;SIGHT.el.style.opacity=k.toFixed(3);const vis=k>0?w:'';if(vis!==SIGHT.vis){SIGHT.vis=vis;for(const n in SIGHT.img)SIGHT.img[n].style.display=n===vis?'block':'none';}
   if(k>0){const H=innerHeight,W=innerWidth,s=(H/2)/(M_.h-M_.ay),kk=(VM.kick||0)*((KICK[w]||{}).vm||1);
     im.style.width=(M_.w*s)+'px';im.style.height=(M_.h*s)+'px';im.style.left=(W/2-M_.ax*s+Math.sin(performance.now()/900)*1.5)+'px';im.style.top=(H/2-M_.ay*s+kk*H*.035)+'px';}
   if(k>.5)VM.g.visible=false;}
 {const _lt15=lookTick;lookTick=function(dt){_lt15(dt);try{sightTick();}catch(e){}};}
+setTimeout(()=>{if(window.__dbg)window.__EX={EGG,CXV,JR,journalOpen,eggNear,TAPE,ribbonModel,shootables,LB:typeof LB!=='undefined'?LB:null};},0);
+const DK={run:-1,seen:new Set(),fx:new Set()};
+// ---- shoot out the lights: the cul-de-sac's two street lamps, the docks' four lot lights and two floodlights. A hit on the
+// head breaks the glass and the lamp stays dark for the rest of the run, for everyone.
+function shootables(){const out=[];
+  if(MAPCUR==='c'&&typeof LOOK!=='undefined'&&LOOK.flicker){let i=0;for(const f of LOOK.flicker){if(!f.street)continue;const p=f.bulb.getWorldPosition(new THREE.Vector3());out.push({id:'c'+i,x:p.x,y:p.y+.06,z:p.z,r:.42,f});i++;}}
+  if(MAPCUR==='w'&&WH.lamps)WH.lamps.forEach((l,j)=>{if(l.kind==='lot'||l.kind==='flood')out.push({id:'w'+j,x:l.x,y:l.y+(l.kind==='lot'?.1:0),z:l.z,r:l.kind==='lot'?.55:.4,l});});
+  return out;}
+{const _fi11=fire;fire=function(){const sq=P.shotSeq,o=camera.position.clone(),d=new THREE.Vector3();camera.getWorldDirection(d);const r=_fi11();
+  try{if(P.shotSeq!==sq){const dead=new Set((S&&S.dk)||[]);for(const t of shootables()){if(dead.has(t.id))continue;const h=raySphere(o.x,o.y,o.z,d.x,d.y,d.z,t.x,t.y,t.z,t.r);
+        if(h>0&&h<90&&wallHit(o.x,o.y,o.z,d.x,d.y,d.z,h)>=h-.3){lampAct('shootl',t.id);lampBreakFx(t);break;}}}}catch(e){}
+  return r;};}
+function lampBreakFx(t){if(DK.fx.has(t.id+DK.run))return;DK.fx.add(t.id+DK.run);burst(t.x,t.y,t.z,16,new THREE.MeshBasicMaterial({color:0xfff0c0}),3,.04);burst(t.x,t.y,t.z,8,new THREE.MeshBasicMaterial({color:0xbfe8ff}),2,.03);
+  const near=Math.max(0,1-Math.hypot(t.x-P.x,t.z-P.z)/40);noise(5200,.35*near+.05,.25,0,'highpass');for(let i=0;i<5;i++)setTimeout(()=>tone('triangle',2400+Math.random()*1800,1800,.05,.06*near+.01),40+i*55);tone('sawtooth',120,60,.25,.1*near);}
+// host: which lamps are broken this run
+function simApplyShoot(W,key,lq){if(!lq||lq.r!==W.run||!Array.isArray(lq.q))return;const seen=W.dkS||(W.dkS={});W.dk=W.dk||[];
+  for(const a of lq.q){if(a[1]!=='shootl')continue;const n=a[0];if(n<=(seen[key]||0))continue;seen[key]=n;if(typeof a[2]==='string'&&a[2].length<5&&!W.dk.includes(a[2]))W.dk.push(a[2]);}}
+{const _sal10=simApplyLamp;simApplyLamp=function(W,key,lq){try{if(key===myKey()&&P.lq&&P.lq!==lq)simApplyShoot(W,key,P.lq);simApplyShoot(W,key,lq);}catch(e){}_sal10(W,key,lq);};}
+{const _ssr4=simStartRun;simStartRun=function(W,...a){const r=_ssr4(W,...a);W.dk=[];W.dkS={};return r;};}
+{const _pw11=packW;packW=function(W){const s=_pw11(W);if(W.dk&&W.dk.length)s.dk=W.dk.slice();return s;};}
+{const _aw11=adoptW;adoptW=function(S0,pr){const W=_aw11(S0,pr);if(S0&&S0.dk)W.dk=S0.dk.slice();return W;};}
+// everyone: apply it (and show it, for the ones someone else broke)
+
+function darkSnap(s){if(!s)return;if(s.r!==DK.run){DK.run=s.r;DK.seen.clear();if(typeof LOOK!=='undefined'&&LOOK.flicker)for(const f of LOOK.flicker)f.dead=0;if(WH.lamps)for(const l of WH.lamps)l.dead=0;}
+  const ts=shootables();for(const id of s.dk||[]){if(DK.seen.has(id))continue;const t=ts.find(q=>q.id===id);if(!t)continue;DK.seen.add(id);if(t.f)t.f.dead=1;if(t.l)t.l.dead=1;lampBreakFx(t);}}
+{const _os12=onSnapshot;onSnapshot=function(s){const r=_os12(s);try{darkSnap(s);}catch(e){}return r;};}
+// the cul-de-sac's lamp tick lights them every frame: a broken one stays out
+{const _lk=lampTick;lampTick=function(dt){_lk(dt);if(LOOK&&LOOK.flicker)for(const f of LOOK.flicker)if(f.dead){f.l.intensity=0;f.bulb.visible=false;}};}
 
 if(M.preview){try{setMap('m');}catch(e){console.error('mansion',e);}}
 M.swap=swap;return M;
@@ -10197,6 +10256,63 @@ function batchTrap(o){if(o.userData.btrap)return;o.userData.btrap=1;
 try{const n=staticBatch(scene,batchReach([DOORS,WINDOWS,PROPMESH,PROPVIS,INTER,PORCH,BREAKERS,LOOK],3));BATCH.cul=n;}catch(e){console.warn('batch',e);}
 // a twin copy whose look changes later (a bulb switched on, a window lit) leaves its batch so the change shows
 setInterval(()=>{if(BATCH.hold)return;for(const b of [...BATCH.list])for(const o of [...b.members])if(o.userData.msig&&o.material!==b.m&&matSig(o.material)!==o.userData.msig)batchOut(o);},500);
+
+/* ================= SMOOTHNESS: only the lights you can see, and a shorter view =================
+   Every lamp in a map is a real light, and the graphics card works each one out for every pixel on screen, whether the
+   lamp is beside you or 60 m away behind three walls. Here the lamps stay where they are (they still flicker, die with
+   the breaker, swing), but a lamp only lights anything while you can see it or the light it throws: its glow has to
+   reach into your view, and no wall may stand between you and it. Rooms you can't see go unlit, even one right behind
+   you through a wall; a lamp behind you in the same room stays on. A fixed set of real light slots does the lighting
+   (Low 4, Medium 5, High 6: with only visible lamps in the running, that covers what you see), handed each frame to the visible lamps, brightest and nearest first. The number of slots
+   never changes, because changing it makes the game rebuild its shaders, which is a stutter of its own.
+   Lamps that throw shadows on High keep their own light.
+   And the camera stops drawing past the point where the fog has swallowed everything anyway (thermal still sees far). */
+const LB={pool:[],lamps:[],scanT:0,on:true,_v:new THREE.Vector3()};
+const LB_BASE=()=>OPT.gfx==='high'?6:OPT.gfx==='med'?5:4;
+// Auto lights (a setting, off unless you switch it on): watches the frame rate and moves the slot count in steps of 2,
+// between 3 and 12. Down after 5 s under 45 fps; up after 15 s at 58 or better, only between waves. At most one change
+// every 20 s, since each change makes the game rebuild its shaders (a short hitch).
+const AL={n:null,low:0,high:0,last:0,t:performance.now()};
+function alTick(){const now=performance.now(),dt=Math.min(.25,(now-AL.t)/1000);AL.t=now;if(!OPT.autoL){AL.n=null;return;}if(AL.n==null)AL.n=LB_BASE();
+  if(!inGame()||document.hidden)return;const fps=1/Math.max(dt,1e-3);
+  if(fps<45){AL.low+=dt;AL.high=0;}else if(fps>=58){AL.high+=dt;AL.low=0;}else{AL.low=Math.max(0,AL.low-dt);AL.high=Math.max(0,AL.high-dt);}
+  if(now-AL.last<20000)return;
+  if(AL.low>5&&AL.n>3){AL.n=Math.max(3,AL.n-2);AL.last=now;AL.low=0;}
+  else if(AL.high>15&&AL.n<12&&S&&S.ph==='b'){AL.n=Math.min(12,AL.n+2);AL.last=now;AL.high=0;}}
+const LB_N=()=>OPT.autoL&&AL.n?AL.n:LB_BASE();const LB_F=new THREE.Frustum(),LB_M=new THREE.Matrix4(),LB_S=new THREE.Sphere();
+const LB_HIDE=30; // the layer a lamp's own light moves to: the camera doesn't look at it
+function lbScan(){scene.traverse(o=>{if(!(o.isPointLight)||o.userData.lbPool||o.userData.lbLamp||o.castShadow)return;o.userData.lbLamp=1;o.layers.set(LB_HIDE);LB.lamps.push(o);});
+  for(let i=LB.lamps.length-1;i>=0;i--){const L=LB.lamps[i];let inScene=false;for(let q=L;q;q=q.parent)if(q===scene){inScene=true;break;}
+    if(!inScene||L.castShadow){if(L.castShadow){L.layers.set(0);delete L.userData.lbLamp;}LB.lamps.splice(i,1);}}}
+function lbPool(){const n=LB_N();while(LB.pool.length<n){const p=new THREE.PointLight(0xffffff,0,1,2);p.userData.lbPool=1;scene.add(p);LB.pool.push(p);}
+  while(LB.pool.length>n){const p=LB.pool.pop();scene.remove(p);}}
+const lbLive=L=>{if(L.intensity<=.001)return false;for(let q=L;q&&q!==scene;q=q.parent)if(!q.visible)return false;return true;};
+function lbTick(dt){if(!LB.on)return;const now=performance.now();if(!(now<LB.scanT)){LB.scanT=now+700;lbScan();}lbPool(); // new lamps (a map just loaded, a flare) are picked up within a moment
+  const c=camera.position,cand=[];camera.updateMatrixWorld();LB_M.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);LB_F.setFromProjectionMatrix(LB_M);LB.fr=(LB.fr||0)+1;
+  for(const L of LB.lamps){if(!lbLive(L))continue;const p=L.getWorldPosition(LB._v),d=p.distanceTo(c),r=L.distance||40;if(d>r+6)continue;
+    // in view: the sphere its light reaches must touch what the camera sees
+    LB_S.center.copy(p);LB_S.radius=r*.75;if(!LB_F.intersectsSphere(LB_S))continue;
+    // and you can see some of what it lights: the lamp, or the floor and walls of its room around it (through a doorway,
+    // a window, across a hall). Only a room you can't see any part of goes unlit. Checked every few frames.
+    if(d>2.5){const u=L.userData;if(!u.lbT||LB.fr-u.lbT>=4){u.lbT=LB.fr;u.lbSeen=lbRoomSeen(c,p,r);}if(!u.lbSeen)continue;}
+    // how much this lamp matters here: bright and near first; one just behind you still counts for the room you're in
+    cand.push([L.intensity*Math.max(0,1-d/(r+6))/(1+d*d*.02),L,p.x,p.y,p.z]);}
+  cand.sort((a,b)=>b[0]-a[0]);
+  for(let i=0;i<LB.pool.length;i++){const P_=LB.pool[i],q=cand[i];if(!P_.parent)scene.add(P_);P_.visible=true; // map swaps hide what they find in the scene: these belong to every map
+    if(!q){P_.intensity=0;continue;}const L=q[1];P_.position.set(q[2],q[3],q[4]);P_.color.copy(L.color);P_.intensity=L.intensity;P_.distance=L.distance;P_.decay=L.decay;}}
+const LB_P=new THREE.Vector3();
+// the sight line starts a little ahead of your eyes, so standing in a doorway or against a wall never blacks a room out
+function lbSee(c,x,y,z){LB_P.set(x,y,z);if(!LB_F.containsPoint(LB_P))return false;const dx=x-c.x,dy=y-c.y,dz=z-c.z,d=Math.hypot(dx,dy,dz);if(d<1)return true;
+  const ux=dx/d,uy=dy/d,uz=dz/d,o=.6;return wallHit(c.x+ux*o,c.y+uy*o,c.z+uz*o,ux,uy,uz,d-o)>=d-o-.35;}
+function lbRoomSeen(c,p,r){if(lbSee(c,p.x,p.y,p.z))return true;let fy=p.y-2.2;try{fy=groundAt(p.x,p.z,p.y-.2);}catch(e){}const k=Math.min(2.6,r*.35);
+  for(const [ox,oz] of [[0,0],[k,0],[-k,0],[0,k],[0,-k],[k*.7,k*.7],[-k*.7,-k*.7],[k*.7,-k*.7],[-k*.7,k*.7]]){if(lbSee(c,p.x+ox,fy+.15,p.z+oz)||lbSee(c,p.x+ox,fy+1.3,p.z+oz))return true;}return false;}
+// the view distance: where FogExp2 has hidden all but a hair of anything, nothing more is drawn
+let lbFar=camera.far;
+function farTick(){const f=scene.fog,want=thermalOn?220:(f&&f.density?Math.max(70,Math.min(220,2.6/f.density+12)):220);
+  if(Math.abs(want-lbFar)>1){lbFar=want;camera.far=want;camera.updateProjectionMatrix();}}
+// a lamp that throws shadows (High) draws the whole scene six times to make them: every other frame is plenty
+function shTick(){LB.sf=(LB.sf||0)+1;scene.traverse(o=>{if(o.isPointLight&&o.castShadow&&o.shadow){if(o.shadow.autoUpdate!==false)o.shadow.autoUpdate=false;o.shadow.needsUpdate=(LB.sf&1)===0;}});}
+{const _lt=lookTick;lookTick=function(dt){_lt(dt);try{alTick();lbTick(dt);farTick();if((LB.sf||0)%30===0)LB.shL=null;shTick();}catch(e){if(!LB.err){LB.err=1;console.warn('perf',e);}}};}
 
 };
 </script>
